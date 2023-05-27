@@ -11,7 +11,7 @@ __global__ void helloFromGPU() {
     printf("Hello world from GPU thread %d!\n", threadIdx);
 }
 
-int main() {
+void parallel_version() {
 
     // Creates and run 1 grid with 10 CUDA threads that all execute the same function
     helloFromGPU<<<1, 10>>>();
@@ -20,6 +20,4 @@ int main() {
     // CUDA functions are asynchronous so the program will terminate before the CUDA kernel prints above if we don't
     // call the following function !!
     cudaDeviceReset();
-
-    return 0;
 }

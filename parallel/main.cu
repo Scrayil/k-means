@@ -1,5 +1,10 @@
+// Copyright (c) 2023. Created by Mattia Bennati, a.k.a Scrayil. All rights reserved.
+
 #include <cuda_runtime_api.h>
 #include <iostream>
+
+#include "parallel_version.cuh"
+
 
 // Global means that this is a kernel function launched by the host, but executed onto the device (GPU)
 __global__ void helloFromGPU() {

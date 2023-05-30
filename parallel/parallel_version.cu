@@ -12,7 +12,6 @@ __global__ void helloFromGPU() {
 }
 
 void parallel_version() {
-
     // Creates and run 1 grid with 10 CUDA threads that all execute the same function
     helloFromGPU<<<1, 10>>>();
 

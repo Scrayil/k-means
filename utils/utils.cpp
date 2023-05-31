@@ -33,7 +33,7 @@ nlohmann::json parse_configuration(const std::filesystem::path& project_folder) 
  */
 std::filesystem::path find_project_path() {
     std::filesystem::path project_folder = std::filesystem::current_path();
-    while(!project_folder.string().ends_with("DESCracker"))
+    while(!project_folder.string().ends_with("K_Means"))
         if(project_folder.string() == "/") {
             project_folder.clear();
             break;

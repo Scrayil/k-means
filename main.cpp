@@ -10,7 +10,7 @@
 
 // FUNCTIONS
 int main() {
-    std::cout << std::endl << "[ DES Cracker ]" << std::endl << std::endl;
+    std::cout << std::endl << "[ K-means ]" << std::endl << std::endl;
 
     // Retrieving the project's folder
     std::filesystem::path project_folder = find_project_path();
@@ -40,7 +40,7 @@ int main() {
             std::cout << "\n\nSEQUENTIAL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            sequential_version();
+            sequential_version(project_folder);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
@@ -70,6 +70,5 @@ int main() {
 
         std::cout << "###########################################################" << std::endl;
     }
-
     return 0;
 }

@@ -3,4 +3,6 @@
 #ifndef K_MEANS_H
 #define K_MEANS_H
 
+int k_means(const std::filesystem::path& project_path);
+
 #endif //K_MEANS_H

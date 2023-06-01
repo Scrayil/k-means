@@ -16,7 +16,7 @@
  * @return A json object that contains all the specified parameters.
  */
 nlohmann::json parse_configuration(const std::filesystem::path& project_folder) {
-    std::filesystem::path config_path = project_folder / "config" / "default.json";
+    std::filesystem::path config_path = project_folder / "data" / "config" / "default.json";
     std::ifstream config_file;
     config_file.open(config_path);
     nlohmann::json json_config = nlohmann::json::parse(config_file);

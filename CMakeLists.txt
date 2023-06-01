@@ -7,9 +7,9 @@ set(CMAKE_CXX_STANDARD 23)
 # EXECUTABLES CONFIGURATION
 add_executable(k_means main.cpp
         sequential/sequential_version.cpp sequential/sequential_version.h
-        sequential/k_means/k_means.cpp sequential/k_means/k_means.h
+        sequential/k_means.h
         parallel/parallel_version.cu parallel/parallel_version.cuh
-        parallel/k_means/k_means.cu parallel/k_means/k_means.cuh
+        parallel/k_means.cuh
         utils/utils.cpp utils/utils.h)
 ############################################################################################################################
 # EXTERNAL LIBRARIES

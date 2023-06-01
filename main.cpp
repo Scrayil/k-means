@@ -7,6 +7,12 @@
 #include "utils/utils.h"
 #include "sequential/sequential_version.h"
 #include "parallel/parallel_version.cuh"
+#include "csv_parser.hpp"
+
+
+// PROTOTYPES
+std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path);
+
 
 // FUNCTIONS
 int main() {
@@ -27,6 +33,15 @@ int main() {
     // Retrieves the number of executions to perform
     int n_executions = config["n_executions"];
 
+    // Retrieves the kmeans parameters
+    nlohmann::json kmeans_params = config["k_means"];
+    int n_clusters = kmeans_params["n_clusters"];
+    float max_tolerance = kmeans_params["max_tolerance"];
+    int max_iterations = kmeans_params["max_iterations"];
+
+    // Loading the dataset
+    std::vector<std::vector<float>> data = load_dataset(project_folder);
+
     // Initializing variables for timing checks
     std::chrono::high_resolution_clock::time_point start_ts;
     std::chrono::high_resolution_clock::time_point end_ts;
@@ -40,7 +55,7 @@ int main() {
             std::cout << "\n\nSEQUENTIAL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            sequential_version(project_folder);
+            sequential_version(data, n_clusters, max_tolerance, max_iterations);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
@@ -71,4 +86,28 @@ int main() {
         std::cout << "###########################################################" << std::endl;
     }
     return 0;
+}
+
+
+std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path) {
+    std::filesystem::path dataset_path = project_path / "data" / "titanic_dataset.csv";
+    std::ifstream f(dataset_path.c_str());
+    aria::csv::CsvParser parser(f);
+
+    std::vector<std::vector<float>> X;
+    int first = true;
+    for(auto& row : parser) {
+        if (first) {
+            first = false;
+            continue;
+        }
+        std::vector<float> curr_values;
+        curr_values.reserve(row.size());
+        for(auto& field : row) {
+            curr_values.push_back(std::stof(field));
+        }
+        X.push_back(curr_values);
+    }
+
+    return X;
 }

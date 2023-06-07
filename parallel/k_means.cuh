@@ -110,6 +110,11 @@ public:
         int num_dimensions = data_points[0].size();
         int num_clusters = k;
 
+        // Sets the initial distances size
+        this->centroids.resize(num_clusters);
+        this->distances.resize(num_data_points * num_clusters);
+        this->centroids.resize(num_clusters);
+
         // Allocate memory on the GPU
         float* device_data_points;
         float* device_centroids;
@@ -124,12 +129,8 @@ public:
         cudaMemcpy(device_data_points, &data_points[0][0], num_data_points * num_dimensions * sizeof(float), cudaMemcpyHostToDevice);
 
         // Sets the initial centroids positions equal to the first data_points points ones
-        this->centroids.resize(k);
         for(int i = 0; i < this->k; i++)
             this->centroids[i] = data_points[i];
-
-        // Sets the initial distances size
-        this->distances.resize(num_data_points * num_clusters);
 
         // Iterate until convergence or maximum iterations reached
         int iterations = 0;

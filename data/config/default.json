@@ -3,7 +3,7 @@
   "execute_sequential": true,
   "execute_parallel": true,
   "k_means": {
-    "n_clusters": 2,
+    "n_clusters": 100,
     "max_tolerance": 0,
     "max_iterations": -1
   }

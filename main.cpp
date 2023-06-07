@@ -72,7 +72,7 @@ int main() {
             std::cout << "\n\nPARALLEL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            parallel_version();
+            parallel_version(data, n_clusters, max_tolerance, max_iterations);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
@@ -90,7 +90,7 @@ int main() {
 
 
 std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path) {
-    std::filesystem::path dataset_path = project_path / "data" / "titanic_dataset.csv";
+    std::filesystem::path dataset_path = project_path / "data" / "wiki-googl.csv";
     std::ifstream f(dataset_path.c_str());
     aria::csv::CsvParser parser(f);
 

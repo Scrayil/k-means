@@ -3,6 +3,8 @@
 #ifndef K_MEANS_SEQUENTIAL_VERSION_H
 #define K_MEANS_SEQUENTIAL_VERSION_H
 
-void sequential_version(std::vector<std::vector<float>> data, int clusters, float max_tolerance, int max_iterations);
+#include <vector>
+
+void sequential_version(const std::vector<std::vector<float>>& data, int clusters, float max_tolerance, int max_iterations);
 
 #endif //K_MEANS_SEQUENTIAL_VERSION_H

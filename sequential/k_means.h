@@ -96,7 +96,7 @@ private:
     int generate_and_optimize_clusters(const std::vector<std::vector<float>>& data_points) {
         // Starts fitting the data_points by optimizing the centroid's positions
         // Loops until the maximum number of iterations is reached or all the centroids converge
-        int iterations = 0;
+        int iterations = 1;
         for(;;)
         {
             // Clears the previous clusters

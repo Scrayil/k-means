@@ -3,6 +3,8 @@
 #ifndef K_MEANS_PARALLEL_VERSION_CUH
 #define K_MEANS_PARALLEL_VERSION_CUH
 
-void parallel_version(std::vector<std::vector<float>> data, int clusters, float max_tolerance, int max_iterations);
+#include <vector>
+
+void parallel_version(const std::vector<std::vector<float>>& data, int clusters, float max_tolerance, int max_iterations);
 
 #endif //K_MEANS_PARALLEL_VERSION_CUH

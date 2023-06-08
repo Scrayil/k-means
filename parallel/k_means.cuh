@@ -4,251 +4,178 @@
 #define K_MEANS_CUH
 
 #include <vector>
-#include <thrust/device_vector.h>
 #include <cmath>
 #include <iostream>
-#include <cfloat>
+#include <cuda_runtime.h>
 
 
-__global__ static void computeDistancesKernel(float* data_points, float* centroids, float* distances, int num_data_points, int num_dimensions, int num_clusters) {
-    int data_point_index = blockIdx.x * blockDim.x + threadIdx.x;
+// Executed for any single data point simultaneously on multiple threads
+__global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions, int num_data_points, const float* data_points, const float* centroids, float* clusters) {
+    int point_index = blockDim.x * blockIdx.x + threadIdx.x;
 
-    if (data_point_index < num_data_points) {
-        for (int centroid_index = 0; centroid_index < num_clusters; centroid_index++) {
+    if(point_index < num_data_points) {
+        int min_dist_index = 0;
+
+        // Initializes the distances array
+        float* distances;
+        cudaMalloc(&distances, n_clusters * sizeof(float));
+        for(int i = 0; i < n_clusters; i++)
+            distances[i] = 0;
+
+        //
+        for(int centroid_index = 0; centroid_index < n_clusters; centroid_index++) {
             float squared_differences_sum = 0;
-            for (int i = 0; i < num_dimensions; i++) {
-                float curr_difference = data_points[data_point_index * num_dimensions + i] - centroids[centroid_index * num_dimensions + i];
+            for(int j = 0; j < num_dimensions; j++) {
+                float curr_difference = data_points[num_dimensions * point_index + j] - centroids[centroid_index * num_dimensions + j];
                 float squared_difference = curr_difference * curr_difference;
                 squared_differences_sum += squared_difference;
             }
-            distances[data_point_index * num_clusters + centroid_index] = sqrt(squared_differences_sum);
+            float dist = std::sqrt(squared_differences_sum);
+            distances[centroid_index] = dist;
+
+            if(dist < distances[min_dist_index])
+                min_dist_index = centroid_index;
         }
+
+        // Assigning the data point to the cluster with the nearest centroid
+        // Remaining clusters non-assigned data_points' sections contain values equal to -1
+        for(int i = 0; i < num_dimensions; i++)
+            clusters[min_dist_index * num_data_points * num_dimensions + point_index * num_dimensions + i] = data_points[num_dimensions * point_index + i];
+
+        cudaFree(distances);
     }
 }
 
-__global__ static void assignClustersKernel(float* distances, int* cluster_assignments, int num_data_points, int num_clusters) {
-    int data_point_index = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (data_point_index < num_data_points) {
-        int min_distance_index = 0;
-        for (int i = 0; i < num_clusters; i++) {
-            if (distances[data_point_index * num_clusters + i] < distances[data_point_index * num_clusters + min_distance_index]) {
-                min_distance_index = i;
-            }
-        }
-        cluster_assignments[data_point_index] = min_distance_index;
-    }
-}
-
-__global__ static void updateCentroidsKernel(float* data_points, int* cluster_assignments, float* centroids, int num_data_points, int num_dimensions, int num_clusters) {
-    int centroid_index = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (centroid_index < num_clusters) {
-        int cluster_size = 0;
-        extern __shared__ float shared_memory[];  // Shared memory for all threads in the block
-
-        // Allocate a unique portion of shared memory for each thread
-        float* new_centroid = &shared_memory[threadIdx.x * num_dimensions];
-
-        // Initialize the new centroid in shared memory
-        for (int i = 0; i < num_dimensions; i++) {
-            new_centroid[i] = 0.0f;
-        }
-        __syncthreads();
-
-        // Compute the sum of data points assigned to this centroid in shared memory
-        for (int data_point_index = 0; data_point_index < num_data_points; data_point_index++) {
-            if (cluster_assignments[data_point_index] == centroid_index) {
-                for (int i = 0; i < num_dimensions; i++) {
-                    atomicAdd(&new_centroid[i], data_points[data_point_index * num_dimensions + i]);
+// Executed for each centroid on multiple threads simultaneously
+__global__ void p_update_centroids_positions(int num_clusters, int num_data_points, int num_dimensions, const float* clusters, float* centroids) {
+    int cluster_index = blockDim.x * blockIdx.x + threadIdx.x;
+    if(cluster_index < num_clusters) {
+        float cluster_elements = 0.f;
+        for(int j = 0; j < num_dimensions; j++) {
+            float curr_sum = 0.f;
+            for(int point_index = 0; point_index < num_data_points; point_index++) {
+                if(clusters[cluster_index * num_data_points * num_dimensions + point_index * num_dimensions] != -1) {
+                    if(j == 0)
+                        cluster_elements++;
+                    curr_sum += clusters[cluster_index * num_data_points * num_dimensions + point_index * num_dimensions + j];
                 }
-                cluster_size++;
             }
-        }
-        __syncthreads();
-
-        // Update the centroid position if cluster size is greater than 0
-        if (cluster_size > 0) {
-            for (int i = 0; i < num_dimensions; i++) {
-                centroids[centroid_index * num_dimensions + i] = new_centroid[i] / cluster_size;
-            }
+            centroids[cluster_index * num_dimensions + j] = curr_sum / cluster_elements;
         }
     }
 }
 
 
-class K_Means {
+__global__ void p_evaluate_centroids_convergence(int num_clusters, int num_dimensions, float max_tolerance, const float* prev_centroids, const float* centroids, bool* centroids_convergence) {
+    int cluster_index = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if(cluster_index < num_clusters) {
+        // Iterates over all the centroids in order to evaluate if they converged or their movement respects the
+        // maximum tolerance allowed, by comparing them with their previous positions.
+        float sum = 0.f;
+        for(int i=0; i < num_dimensions; i++) {
+            sum += (centroids[cluster_index * num_dimensions + i] - prev_centroids[cluster_index * num_dimensions + i])
+                   / centroids[cluster_index * num_dimensions + i] * 100.f;
+        }
+
+        if(std::abs(sum) > max_tolerance)
+            centroids_convergence[cluster_index] = false;
+    }
+}
+
+
+
+/**
+ * P_K_Means is a class that implements the homonymous algorithm in order to create k clusters and classify the
+ * input data.
+ * The class allows to specify only some essential parameters and provides the "p_fit" function that allows to create and
+ * optimize the clusters.
+ */
+class P_K_Means {
     int k;
     float max_tolerance;
     int max_iterations;
-    std::vector<std::vector<float>> centroids;
-    std::vector<float> distances;
-    std::vector<std::vector<std::vector<float>>> clusters;
 
 public:
-    explicit K_Means(int k = 2, float max_tolerance = 0, int max_iterations = -1) {
+    /**
+     * Constructor of the P_K_Means class used to set the initial parameters and to initialize the required vectors.
+     *
+     * @param k Desired number of clusters to find and generate. If applicable as there might be multiple coinciding centroids.
+     * @param max_tolerance Maximum shift tolerance considered aside of centroids convergence. A value greater than 0
+     * means that we are not interested into making all centroids converge, and it's okay if they are near enough
+     * the convergence point.
+     * @param max_iterations Maximum number of iterations allowed to p_fit the data.
+     *
+     * @return the instance of the class
+     */
+    explicit P_K_Means(int k = 2, float max_tolerance = 0, int max_iterations = -1) {
         this->k = k;
         this->max_tolerance = max_tolerance;
         this->max_iterations = max_iterations;
 
-        if (k < 1) {
-            std::cout << "The value of k must be at least 1." << std::endl;
+        if(k < 1) {
+            std::cout << "The number of clusters(k) must be greater or equal to 1!";
+            exit(1);
+        }
+        if(max_tolerance < 0) {
+            std::cout << "The maximum tolerance must be a value greater or equal to 0!";
             exit(1);
         }
     }
 
-    ~K_Means() = default;
-
-    void fit(std::vector<std::vector<float>> data_points) {
-        if(data_points.empty())
-        {
-            std::cout << "There is no data to fit" << std::endl;
-            exit(1);
-        }
-
-        int num_data_points = data_points.size();
-        int num_dimensions = data_points[0].size();
-        int num_clusters = k;
-
-        // Sets the initial distances size
-        this->centroids.resize(num_clusters);
-        this->distances.resize(num_data_points * num_clusters);
-        this->centroids.resize(num_clusters);
-
-        // Allocate memory on the GPU
-        float* device_data_points;
-        float* device_centroids;
-        float* device_distances;
-        int* device_cluster_assignments;
-        cudaMalloc(&device_data_points, num_data_points * num_dimensions * sizeof(float));
-        cudaMalloc(&device_centroids, num_clusters * num_dimensions * sizeof(float));
-        cudaMalloc(&device_distances, num_data_points * num_clusters * sizeof(float));
-        cudaMalloc(&device_cluster_assignments, num_data_points * sizeof(int));
-
-        // Copy data points to the GPU
-        cudaMemcpy(device_data_points, &data_points[0][0], num_data_points * num_dimensions * sizeof(float), cudaMemcpyHostToDevice);
-
-        // Sets the initial centroids positions equal to the first data_points points ones
-        for(int i = 0; i < this->k; i++)
-            this->centroids[i] = data_points[i];
-
-        // Iterate until convergence or maximum iterations reached
-        int iterations = 0;
-        for(;;) {
-            // Copy centroids to the GPU
-            cudaMemcpy(device_centroids, &this->centroids[0][0], num_clusters * num_dimensions * sizeof(float), cudaMemcpyHostToDevice);
-
-            // Compute distances between data points and centroids
-            int block_size = 64;  // 256??
-            int num_blocks = (num_data_points + block_size - 1) / block_size;
-            computeDistancesKernel<<<num_blocks, block_size>>>(device_data_points, device_centroids, device_distances, num_data_points, num_dimensions, num_clusters);
-            cudaMemcpy(&this->distances[0], device_distances, num_data_points * num_clusters * sizeof(float), cudaMemcpyDeviceToHost);
-
-            // Assign data points to clusters
-            assignClustersKernel<<<num_blocks, block_size>>>(device_distances, device_cluster_assignments, num_data_points, num_clusters);
-
-            // Copy cluster assignments back to the CPU
-            cudaMemcpy(&this->centroids[0][0], device_centroids, num_clusters * num_dimensions * sizeof(float), cudaMemcpyDeviceToHost);
-            std::vector<std::vector<float>> prev_centroids = this->centroids;
-
-            // Update centroids' positions
-            updateCentroidsKernel<<<num_blocks, block_size>>>(device_data_points, device_cluster_assignments, device_centroids, num_data_points, num_dimensions, num_clusters);
-
-            // Copy centroids back to the CPU
-            cudaMemcpy(&this->centroids[0][0], device_centroids, num_clusters * num_dimensions * sizeof(float), cudaMemcpyDeviceToHost);
-
-            bool clusters_optimized = evaluate_centroids_convergence(prev_centroids);
-            // Exits if the centroids converged or if the maximum number of iterations has been reached
-            if (clusters_optimized || iterations == this->max_iterations)
-                break;
-                // Proceeds if not all the centroids converged and either there is no maximum iteration limit
-                // or the limit has been set but not reached yet
-            else
-                iterations += 1;
-        }
-
-        // Free memory on the GPU
-        cudaFree(device_data_points);
-        cudaFree(device_centroids);
-        cudaFree(device_distances);
-        cudaFree(device_cluster_assignments);
-        // Destroys and cleans up the resources associated with the current device and process
-        // CUDA functions are asynchronous so the program will terminate before the CUDA kernel prints above if we don't
-        // call the following function !!
+    ~P_K_Means() {
+        cudaDeviceSynchronize();
         cudaDeviceReset();
+    };
 
-        // Create clusters based on the final assignments
-        for (int i = 0; i < num_clusters; i++) {
-            std::vector<std::vector<float>> cluster;
-            for (int j = 0; j < num_data_points; j++) {
-                if (this->distances[j * num_clusters + i] == 0) {
-                    cluster.push_back(data_points[j]);
-                }
-            }
-            this->clusters[i] = cluster;
+    /**
+     * This is the K-means algorithm entry point.
+     *
+     * More specifically this public method is responsible for starting the cluster generation and to print the final
+     * results to the console.
+     *
+     * @param data_points This is the vector that contains all the data points that are going to be clustered.
+     */
+    void p_fit(const std::vector<std::vector<float>>& data_points) {
+        if(data_points.size() < this->k) {
+            std::cout << "There can't be more clusters than data points!";
+            exit(1);
         }
 
-        // Shows the number of iterations occurred, the clusters' sizes and the number of unique clusters identified.
-        // Since there can be multiple coinciding centroids, some of them are superfluous and have no data_points points
-        // assigned to them.
-        show_results(iterations);
-
+        p_generate_and_optimize_clusters(data_points);
     }
+
 private:
-    /**
-     * This method iterates over the vector of centroids and checks if they all converge.
-     *
-     * Only if all the centroids converge the clusters are optimized, otherwise even if a single one does not converge
-     * the algorithm must be reapplied to better fit the data.
-     *
-     * @param prev_centroids This is the vector containing all the centroids' positions gotten before moving them.
-     * These points are used to check for convergence.
-     *
-     * @return a boolean flag that tells the caller method if all centroids converge or not.
-     */
-    bool evaluate_centroids_convergence(std::vector<std::vector<float>> prev_centroids) {
-        // Iterates over all the centroids in order to evaluate if they converged or their movement respects the
-        // maximum tolerance allowed, by comparing them with their previous positions.
-        bool clusters_optimized = true;
-        for(int centroid_index = 0; centroid_index < this->centroids.size(); centroid_index++) {
-            std::vector<float> original_centroid = prev_centroids[centroid_index];
-            std::vector<float> current_centroid = this->centroids[centroid_index];
-
-            clusters_optimized = evaluate_convergence(clusters_optimized, centroid_index, current_centroid, original_centroid);
-            // There is no need to check if the other centroids converge or meet the tolerance requirement as there
-            // is already one that doesn't
-            if(!clusters_optimized)
-                break;
-        }
-
-        return clusters_optimized;
+    static void p_copy_data_points(float* data_points, const std::vector<std::vector<float>>& orig_data_points) {
+        int index = 0;
+        for(const std::vector<float>& point : orig_data_points)
+            for(float value : point) {
+                data_points[index] = value;
+                index++;
+            }
     }
 
-    /**
-     * This is the method that is responsible for evaluating the given centroid convergence.
-     *
-     * The method actually computes the arithmetic sum of the differences (in percentages) of the current centroid
-     * position and it's previous position.
-     *
-     * @param clusters_optimized Flag used to determine if the centroid converges.
-     * @param centroid_index Index of the centroid that is being evaluated.
-     * @param current_centroid Actual centroid's position.
-     * @param original_centroid Previous centroid's position.
-     * @return the 'cluster_optimized' flag.
-     */
-    bool evaluate_convergence(bool clusters_optimized, int centroid_index, std::vector<float> current_centroid, std::vector<float> original_centroid) {
-        // Evaluating the variations between the current and previous centroid positions with an arithmetic
-        // sum
-        float sum = 0;
-        for(int l = 0; l < this->centroids[centroid_index].size(); l++)
-            sum += (current_centroid[l] - original_centroid[l]) / original_centroid[l] * 100.f;
+    static void p_initialize_centroids(float* centroids, const std::vector<std::vector<float>>& orig_data_points) {
+        int index = 0;
+        for(const std::vector<float>& point : orig_data_points)
+            for(float value : point)
+            {
+                centroids[index] = value;
+                index++;
+            }
+    }
 
-        // If the absolute value of the computed sum is greater than the maximum tolerance the centroid has not
-        // met the requirement yet, and it has not converged.
-        if (std::abs(sum) > this->max_tolerance)
-            clusters_optimized = false;
+    static void p_clear_clusters(int clusters_size, float* clusters) {
+        for(int i = 0; i < clusters_size; i++) {
+            clusters[i] = -1;
+        }
+    }
 
-        return clusters_optimized;
+    static void p_reset_convergence_values(int num_clusters, bool* centroids_convergence) {
+        for(int i = 0; i < num_clusters; i++) {
+            centroids_convergence[i] = true;
+        }
     }
 
     /**
@@ -260,19 +187,153 @@ private:
      * @param iterations This is the number of iterations that have been required for the clusters' generation and
      * optimization.
      */
-    void show_results(int iterations) {
+    void p_show_results(int iterations, int num_data_points, int num_dimensions, const float* clusters) const {
         std::string clusters_sizes;
         int final_clusters = 0;
-        for(int cluster_index = 0; cluster_index < this->k; cluster_index++)
-            if(!this->clusters[cluster_index].empty()) {
+        for(int cluster_index = 0; cluster_index < this->k; cluster_index++) {
+            int cluster_size = 0;
+            for(int point_index = 0; point_index < num_data_points; point_index++) {
+                if(clusters[cluster_index * num_data_points * num_dimensions + point_index * num_dimensions] != -1)
+                {
+                    cluster_size++;
+                }
+            }
+            if(cluster_size > 0) {
                 clusters_sizes += "\n    C" + std::to_string(cluster_index + 1) + ": "
-                                  + std::to_string(this->clusters[cluster_index].size());
+                                  + std::to_string(cluster_size);
                 final_clusters += 1;
             }
+        }
 
         std::cout << "Iterations: " << iterations << "\n[" << clusters_sizes << "\n]\n"
                   << "Unique clusters: " << final_clusters << "/" << this->k << std::endl << std::endl;
     }
+
+    /**
+     * This function is used to generate the clusters and classify the given data points.
+     *
+     * More specifically this is responsible for managing the clusters generation and optimization until the required
+     * level of tolerance is met or all the centroids converge.
+     *
+     * @param data_points This is the vector that contains all the data points that are going to be clustered.
+     * @return the number of iterations that have been required in order to p_fit the data.
+     */
+    void p_generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points) {
+        // Computing sizes for host and device variables
+        size_t data_points_size = orig_data_points.size() * orig_data_points[0].size() * sizeof(float);
+        size_t centroids_size = this->k * orig_data_points[0].size() * sizeof(float);
+        size_t centroids_convergence_size = this->k * sizeof(bool);
+        size_t clusters_size = this->k * data_points_size;
+
+        // Creating the variables to use
+        float* data_points;
+        float* centroids;
+        float* prev_centroids;
+        bool* centroids_convergence;
+        float* clusters;
+
+        // Allocating memory for the device variables
+        cudaMallocManaged(&data_points, data_points_size);
+        cudaMallocManaged(&centroids, centroids_size);
+        cudaMallocManaged(&prev_centroids, centroids_size);
+        cudaMallocManaged(&centroids_convergence, centroids_convergence_size);
+        cudaMallocManaged(&clusters, clusters_size);
+
+        cudaError_t cudaStatus = cudaGetLastError();
+        if (cudaStatus != cudaSuccess) {
+            fprintf(stderr, "Pointers allocation failed: %s\n", cudaGetErrorString(cudaStatus));
+            return;
+        }
+
+        // Copy data_points
+        p_copy_data_points(data_points, orig_data_points);
+
+        // Initialize the centroids
+        p_initialize_centroids(centroids, orig_data_points);
+
+        // Number of threads per block
+        int threads = 256;
+        // Every element remaining after dividing is allocated to an additional block
+        int blocks = (static_cast<int>(orig_data_points.size()) + threads - 1) / threads;
+
+        // Starts fitting the data_points by optimizing the centroid's positions
+        // Loops until the maximum number of iterations is reached or all the centroids converge
+        int iterations = 1;
+        for(;;)
+        {
+            // Clears the previous clusters' data
+            p_clear_clusters(this->k * static_cast<int>(orig_data_points.size() * orig_data_points[0].size()), clusters);
+            p_create_and_update_clusters<<<blocks, threads>>>(
+                    this->k, static_cast<int>(orig_data_points[0].size()),
+                    static_cast<int>(orig_data_points.size()), data_points, centroids, clusters);
+
+            // Waits for all the threads to finish before continuing executing code on the gpu
+            cudaDeviceSynchronize();
+
+            cudaStatus = cudaGetLastError();
+            if (cudaStatus != cudaSuccess) {
+                fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+                return;
+            }
+
+
+            // The previous centroids positions are saved in order to evaluate the convergence later and to check if
+            // the maximum tolerance requirement has been met.
+            for(int i = 0; i < this->k * orig_data_points[0].size(); i++) {
+                prev_centroids[i] = centroids[i];
+            }
+            p_update_centroids_positions<<<blocks, threads>>>(
+                    this->k, static_cast<int>(orig_data_points.size()),
+                    static_cast<int>(orig_data_points[0].size()), clusters, centroids);
+
+            // Waits for all the threads to finish before continuing executing code on the gpu
+            cudaDeviceSynchronize();
+
+            cudaStatus = cudaGetLastError();
+            if (cudaStatus != cudaSuccess) {
+                fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+                return;
+            }
+
+            // Reset the convergence array to false
+            p_reset_convergence_values(this->k, centroids_convergence);
+            p_evaluate_centroids_convergence<<<blocks, threads>>>(
+                    this->k, static_cast<int>(orig_data_points[0].size()), this->max_tolerance,
+                    prev_centroids, centroids, centroids_convergence);
+
+            // Waits for all the threads to finish before continuing executing code on the gpu
+            cudaDeviceSynchronize();
+
+            cudaStatus = cudaGetLastError();
+            if (cudaStatus != cudaSuccess) {
+                fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+                return;
+            }
+
+            bool clusters_optimized = true;
+            for(int i = 0; i < this->k; i++) {
+                if(!centroids_convergence[i])
+                {
+                    clusters_optimized = false;
+                    break;
+                }
+            }
+
+            // Exits if the centroids converged or if the maximum number of iterations has been reached
+            if (clusters_optimized || iterations == this->max_iterations)
+                break;
+            // Proceeds if not all the centroids converged and either there is no maximum iteration limit
+            // or the limit has been set but not reached yet
+            else
+                iterations += 1;
+        }
+
+        // Shows the number of iterations occurred, the clusters' sizes and the number of unique clusters identified.
+        // Since there can be multiple coinciding centroids, some of them are superfluous and have no data_points points
+        // assigned to them.
+        p_show_results(iterations, static_cast<int>(orig_data_points.size()),
+                       static_cast<int>(orig_data_points[0].size()), clusters);
+    }
 };
 
-#endif  // K_MEANS_CUH
+#endif //K_MEANS_CUH

@@ -10,19 +10,14 @@
 
 
 // Executed for any single data point simultaneously on multiple threads
-__global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions, int num_data_points, const float* data_points, const float* centroids, float* clusters) {
+__global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions, int num_data_points, const float* data_points, const float* centroids, float* clusters, float* distances) {
     int point_index = blockDim.x * blockIdx.x + threadIdx.x;
 
     if(point_index < num_data_points) {
         int min_dist_index = 0;
+        // Get a pointer to the distances array for the current thread
+        float* thread_distances = distances + point_index * n_clusters;
 
-        // Initializes the distances array
-        float* distances;
-        cudaMalloc(&distances, n_clusters * sizeof(float));
-        for(int i = 0; i < n_clusters; i++)
-            distances[i] = 0;
-
-        //
         for(int centroid_index = 0; centroid_index < n_clusters; centroid_index++) {
             float squared_differences_sum = 0;
             for(int j = 0; j < num_dimensions; j++) {
@@ -31,9 +26,9 @@ __global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions,
                 squared_differences_sum += squared_difference;
             }
             float dist = std::sqrt(squared_differences_sum);
-            distances[centroid_index] = dist;
+            thread_distances[centroid_index] = dist;
 
-            if(dist < distances[min_dist_index])
+            if(dist < thread_distances[min_dist_index])
                 min_dist_index = centroid_index;
         }
 
@@ -41,8 +36,6 @@ __global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions,
         // Remaining clusters non-assigned data_points' sections contain values equal to -1
         for(int i = 0; i < num_dimensions; i++)
             clusters[min_dist_index * num_data_points * num_dimensions + point_index * num_dimensions + i] = data_points[num_dimensions * point_index + i];
-
-        cudaFree(distances);
     }
 }
 
@@ -137,13 +130,13 @@ public:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void p_fit(const std::vector<std::vector<float>>& data_points) {
+    void p_fit(const std::vector<std::vector<float>>& data_points, int device_index) {
         if(data_points.size() < this->k) {
             std::cout << "There can't be more clusters than data points!";
             exit(1);
         }
 
-        p_generate_and_optimize_clusters(data_points);
+        p_generate_and_optimize_clusters(data_points, device_index);
     }
 
 private:
@@ -156,26 +149,28 @@ private:
             }
     }
 
-    static void p_initialize_centroids(float* centroids, const std::vector<std::vector<float>>& orig_data_points) {
+    void p_initialize_centroids(float* centroids, const std::vector<std::vector<float>>& orig_data_points) const {
         int index = 0;
-        for(const std::vector<float>& point : orig_data_points)
-            for(float value : point)
-            {
+        for(int i = 0; i < this->k; i++)
+            for(float value : orig_data_points[i]) {
                 centroids[index] = value;
                 index++;
             }
     }
 
     static void p_clear_clusters(int clusters_size, float* clusters) {
-        for(int i = 0; i < clusters_size; i++) {
+        for(int i = 0; i < clusters_size; i++)
             clusters[i] = -1;
-        }
+    }
+
+    static void p_clear_distances(int distances_size, float* distances) {
+        for(int i = 0; i < distances_size; i++)
+            distances[i] = 0;
     }
 
     static void p_reset_convergence_values(int num_clusters, bool* centroids_convergence) {
-        for(int i = 0; i < num_clusters; i++) {
+        for(int i = 0; i < num_clusters; i++)
             centroids_convergence[i] = true;
-        }
     }
 
     /**
@@ -218,10 +213,17 @@ private:
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      * @return the number of iterations that have been required in order to p_fit the data.
      */
-    void p_generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points) {
+    void p_generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points, int device_index) {
+        int num_data_points = static_cast<int>(orig_data_points.size());
+        int num_dimensions = static_cast<int>(orig_data_points[0].size());
+
+        // Setting the GPU device to use
+        cudaSetDevice(device_index);
+
         // Computing sizes for host and device variables
-        size_t data_points_size = orig_data_points.size() * orig_data_points[0].size() * sizeof(float);
-        size_t centroids_size = this->k * orig_data_points[0].size() * sizeof(float);
+        size_t data_points_size = num_data_points * num_dimensions * sizeof(float);
+        size_t centroids_size = this->k * num_dimensions * sizeof(float);
+        size_t distances_size = num_data_points * this->k * sizeof(float);
         size_t centroids_convergence_size = this->k * sizeof(bool);
         size_t clusters_size = this->k * data_points_size;
 
@@ -229,6 +231,7 @@ private:
         float* data_points;
         float* centroids;
         float* prev_centroids;
+        float* distances;
         bool* centroids_convergence;
         float* clusters;
 
@@ -236,12 +239,16 @@ private:
         cudaMallocManaged(&data_points, data_points_size);
         cudaMallocManaged(&centroids, centroids_size);
         cudaMallocManaged(&prev_centroids, centroids_size);
+        cudaMallocManaged(&distances, distances_size);
         cudaMallocManaged(&centroids_convergence, centroids_convergence_size);
         cudaMallocManaged(&clusters, clusters_size);
 
         cudaError_t cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "Pointers allocation failed: %s\n", cudaGetErrorString(cudaStatus));
+            const char* errorName = cudaGetErrorName(cudaStatus);
+            const char* errorString = cudaGetErrorString(cudaStatus);
+            fprintf(stderr, "Pointers allocation failed!\n");
+            fprintf(stderr, "CUDA error: %s (%s)\n", errorName, errorString);
             return;
         }
 
@@ -254,7 +261,7 @@ private:
         // Number of threads per block
         int threads = 256;
         // Every element remaining after dividing is allocated to an additional block
-        int blocks = (static_cast<int>(orig_data_points.size()) + threads - 1) / threads;
+        int blocks = (num_data_points + threads - 1) / threads;
 
         // Starts fitting the data_points by optimizing the centroid's positions
         // Loops until the maximum number of iterations is reached or all the centroids converge
@@ -262,43 +269,48 @@ private:
         for(;;)
         {
             // Clears the previous clusters' data
-            p_clear_clusters(this->k * static_cast<int>(orig_data_points.size() * orig_data_points[0].size()), clusters);
+            p_clear_clusters(this->k * num_data_points * num_dimensions, clusters);
+            p_clear_distances(num_data_points * this->k, distances);
+
             p_create_and_update_clusters<<<blocks, threads>>>(
-                    this->k, static_cast<int>(orig_data_points[0].size()),
-                    static_cast<int>(orig_data_points.size()), data_points, centroids, clusters);
+                    this->k, num_dimensions, num_data_points, data_points, centroids, clusters, distances);
 
             // Waits for all the threads to finish before continuing executing code on the gpu
             cudaDeviceSynchronize();
 
             cudaStatus = cudaGetLastError();
             if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+                const char* errorName = cudaGetErrorName(cudaStatus);
+                const char* errorString = cudaGetErrorString(cudaStatus);
+                fprintf(stderr, "Creation of the clusters failed!\n");
+                fprintf(stderr, "CUDA error: %s (%s)\n", errorName, errorString);
                 return;
             }
 
-
             // The previous centroids positions are saved in order to evaluate the convergence later and to check if
             // the maximum tolerance requirement has been met.
-            for(int i = 0; i < this->k * orig_data_points[0].size(); i++) {
+            for(int i = 0; i < this->k * num_dimensions; i++) {
                 prev_centroids[i] = centroids[i];
             }
             p_update_centroids_positions<<<blocks, threads>>>(
-                    this->k, static_cast<int>(orig_data_points.size()),
-                    static_cast<int>(orig_data_points[0].size()), clusters, centroids);
+                    this->k, num_data_points, num_dimensions, clusters, centroids);
 
             // Waits for all the threads to finish before continuing executing code on the gpu
             cudaDeviceSynchronize();
 
             cudaStatus = cudaGetLastError();
             if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+                const char* errorName = cudaGetErrorName(cudaStatus);
+                const char* errorString = cudaGetErrorString(cudaStatus);
+                fprintf(stderr, "Centroids positions update failed!\n");
+                fprintf(stderr, "CUDA error: %s (%s)\n", errorName, errorString);
                 return;
             }
 
             // Reset the convergence array to false
             p_reset_convergence_values(this->k, centroids_convergence);
             p_evaluate_centroids_convergence<<<blocks, threads>>>(
-                    this->k, static_cast<int>(orig_data_points[0].size()), this->max_tolerance,
+                    this->k, num_dimensions, this->max_tolerance,
                     prev_centroids, centroids, centroids_convergence);
 
             // Waits for all the threads to finish before continuing executing code on the gpu
@@ -306,7 +318,10 @@ private:
 
             cudaStatus = cudaGetLastError();
             if (cudaStatus != cudaSuccess) {
-                fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
+                const char* errorName = cudaGetErrorName(cudaStatus);
+                const char* errorString = cudaGetErrorString(cudaStatus);
+                fprintf(stderr, "Convergence evaluation failed!\n");
+                fprintf(stderr, "CUDA error: %s (%s)\n", errorName, errorString);
                 return;
             }
 
@@ -331,8 +346,7 @@ private:
         // Shows the number of iterations occurred, the clusters' sizes and the number of unique clusters identified.
         // Since there can be multiple coinciding centroids, some of them are superfluous and have no data_points points
         // assigned to them.
-        p_show_results(iterations, static_cast<int>(orig_data_points.size()),
-                       static_cast<int>(orig_data_points[0].size()), clusters);
+        p_show_results(iterations, num_data_points, num_dimensions, clusters);
     }
 };
 

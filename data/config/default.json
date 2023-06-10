@@ -1,9 +1,9 @@
 {
   "n_executions": 1,
-  "execute_sequential": true,
+  "execute_sequential": false,
   "execute_parallel": true,
   "k_means": {
-    "n_clusters": 100,
+    "n_clusters": 40,
     "max_tolerance": 0,
     "max_iterations": -1
   }

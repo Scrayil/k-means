@@ -90,7 +90,7 @@ int main() {
 
 
 std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path) {
-    std::filesystem::path dataset_path = project_path / "data" / "wiki-googl.csv";
+    std::filesystem::path dataset_path = project_path / "data" / "data.csv";
     std::ifstream f(dataset_path.c_str());
     aria::csv::CsvParser parser(f);
 

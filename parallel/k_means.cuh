@@ -267,9 +267,9 @@ private:
         int data_points_batch_size = num_data_points / n_data_iterations;
 
         std::cout << "\033[1m"; // Bold text
-        std::cout << "***************************************************************\n";
-        std::cout << "*                         Information                         *\n";
-        std::cout << "***************************************************************\n";
+        std::cout << "*********************************************************************\n";
+        std::cout << "*                            Information                            *\n";
+        std::cout << "*********************************************************************\n";
         std::cout << "\033[0m"; // Reset text formatting
         std::cout << "\033[1mSelected GPU Idx:\033[0m " << device_index << "\n";
         std::cout << "\033[1mN° GPU threads:\033[0m " << total_threads << "\n";
@@ -282,13 +282,13 @@ private:
             }
 
             std::cout << "\033[1mInput data size\033[0m too big for the machine architecture!\n";
-            std::cout << "Using the mini-batch K_Means algorithm..\n";
-            std::cout << "This will result into an approximation of the standard K_Means!\n";
+            std::cout << "\033[1mAlgorithm:\033[0m Mini-Batch K_Means\n";
+            std::cout << "\033[1mNote:\033[0m This will result into an approximation of the standard K_Means!\n";
         }
         else
-            std::cout<< "Using the K_Means algorithm..\n";
+            std::cout<< "\033[1mAlgorithm:\033[0m K_Means\n";
 
-        std::cout << "###############################################################\n\n";
+        std::cout << "#####################################################################\n\n";
 
         // Computing sizes for host and device variables
         size_t data_points_size = data_points_batch_size * num_dimensions * sizeof(float);

@@ -11,7 +11,7 @@
 
 
 // PROTOTYPES
-std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path);
+std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path, int max_data_points);
 
 
 // FUNCTIONS
@@ -40,7 +40,9 @@ int main() {
     int max_iterations = kmeans_params["max_iterations"];
 
     // Loading the dataset
-    std::vector<std::vector<float>> data = load_dataset(project_folder);
+    // Retrieves the data_points number limit
+    int max_data_points = config["limit_data_points_to"];
+    std::vector<std::vector<float>> data = load_dataset(project_folder, max_data_points);
 
     // Initializing variables for timing checks
     std::chrono::high_resolution_clock::time_point start_ts;
@@ -64,7 +66,7 @@ int main() {
 
             // Todo: Implement function to save results
 
-            std::cout << "-----------------------------------------------------------" << std::endl;
+            std::cout << "---------------------------------------------------------------------" << std::endl;
         }
 
         // PARALLEL VERSION
@@ -83,19 +85,20 @@ int main() {
 
         }
 
-        std::cout << "###########################################################" << std::endl;
+        std::cout << "#####################################################################" << std::endl;
     }
     return 0;
 }
 
 
-std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path) {
+std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path, int max_data_points=-1) {
     std::filesystem::path dataset_path = project_path / "data" / "data.csv";
     std::ifstream f(dataset_path.c_str());
     aria::csv::CsvParser parser(f);
 
     std::vector<std::vector<float>> X;
     int first = true;
+    int data_points_added = 0;
     for(auto& row : parser) {
         if (first) {
             first = false;
@@ -107,6 +110,10 @@ std::vector<std::vector<float>> load_dataset(const std::filesystem::path& projec
             curr_values.push_back(std::stof(field));
         }
         X.push_back(curr_values);
+        data_points_added++;
+        // Limits the number of considered data_points for testing purposes
+        if(data_points_added == max_data_points)
+            break;
     }
 
     return X;

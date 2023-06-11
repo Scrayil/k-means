@@ -4,7 +4,8 @@
 #define K_MEANS_PARALLEL_VERSION_CUH
 
 #include <vector>
+#include <random>
 
-void parallel_version(const std::vector<std::vector<float>>& data, int clusters, float max_tolerance, int max_iterations);
+void parallel_version(std::vector<std::vector<float>> data, int clusters, float max_tolerance, int max_iterations, std::mt19937 random_rng);
 
 #endif //K_MEANS_PARALLEL_VERSION_CUH

@@ -9,15 +9,15 @@
 #include <cuda_runtime.h>
 #include <random>
 
+#include "../utils/utils.cuh"
 
 // Executed for any single data point simultaneously on multiple threads
-__global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions, int data_points_batch_size, const float* data_points, const float* centroids, float* clusters, float* distances) {
+__global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions, int data_points_batch_size, int actual_data_points_batch_size, const float* data_points, const float* centroids, float* clusters, float* distances) {
     int point_index = blockDim.x * blockIdx.x + threadIdx.x;
 
-    if(point_index < data_points_batch_size) {
+    if(point_index < actual_data_points_batch_size) {
         int min_dist_index = 0;
         // Get a pointer to the distances array for the current thread
-        float* thread_distances = distances + point_index * n_clusters;
 
         for(int centroid_index = 0; centroid_index < n_clusters; centroid_index++) {
             float squared_differences_sum = 0;
@@ -27,28 +27,29 @@ __global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions,
                 squared_differences_sum += squared_difference;
             }
             float dist = std::sqrt(squared_differences_sum);
-            thread_distances[centroid_index] = dist;
+            distances[centroid_index * data_points_batch_size + point_index] = dist;
 
-            if(dist < thread_distances[min_dist_index])
+            if(dist < distances[min_dist_index * data_points_batch_size + point_index])
                 min_dist_index = centroid_index;
         }
 
         // Assigning the data point to the cluster with the nearest centroid
         // Remaining clusters non-assigned data_points' sections contain values equal to -1
-        for(int i = 0; i < num_dimensions; i++)
+        for(int i = 0; i < num_dimensions; i++) {
             clusters[min_dist_index * data_points_batch_size * num_dimensions + point_index * num_dimensions + i] = data_points[num_dimensions * point_index + i];
+        }
     }
 }
 
 
 // Executed for each centroid on multiple threads simultaneously
-__global__ void p_update_centroids_positions(int num_clusters, int data_points_batch_size, int num_dimensions, const float* clusters, float* centroids) {
+__global__ void p_update_centroids_positions(int num_clusters, int data_points_batch_size, int actual_data_points_size, int num_dimensions, const float* clusters, float* centroids) {
     int cluster_index = blockDim.x * blockIdx.x + threadIdx.x;
     if(cluster_index < num_clusters) {
         float cluster_elements = 0.f;
         for(int j = 0; j < num_dimensions; j++) {
             float curr_sum = 0.f;
-            for(int point_index = 0; point_index < data_points_batch_size; point_index++) {
+            for(int point_index = 0; point_index < actual_data_points_size; point_index++) {
                 if(clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions] != -1) {
                     if(j == 0)
                         cluster_elements++;
@@ -131,35 +132,42 @@ public:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void p_fit(const std::vector<std::vector<float>>& data_points, int device_index) {
+    void p_fit(const std::vector<std::vector<float>>& data_points, int device_index, std::mt19937 random_rng) {
         if(data_points.size() < this->k) {
             std::cout << "There can't be more clusters than data points!";
             exit(1);
         }
 
-        p_generate_and_optimize_clusters(data_points, device_index);
+        p_generate_and_optimize_clusters(data_points, device_index, random_rng);
     }
 
 private:
-    static void p_copy_data_points(float* data_points, const std::vector<std::vector<float>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
+    static int p_copy_data_points(float* data_points, const std::vector<std::vector<float>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
         int index = 0;
-        for(int i = curr_batch_index; i < curr_batch_index + data_points_batch_size; i++)
+        int actual_data_points = 0;
+        for(int i = curr_batch_index; i < curr_batch_index + data_points_batch_size; i++) {
+            // The remaining number of data points in the batch is smaller than the batch size
+            // All the elements have been considered
+            if(i == orig_data_points.size())
+                break;
             for(float value : orig_data_points[i]) {
                 data_points[index] = value;
                 index++;
             }
+            actual_data_points++;
+        }
+        return actual_data_points;
     }
 
-    void p_initialize_centroids(float* centroids, const std::vector<std::vector<float>>& orig_data_points, long seed=0) const {
+    void p_initialize_centroids(float* centroids, const std::vector<std::vector<float>>& orig_data_points, std::mt19937 random_rng) const {
         int index = 0;
         int num_data_points = static_cast<int>(orig_data_points.size());
         int num_dimensions = static_cast<int>(orig_data_points[0].size());
-        std::mt19937 rng(seed);
         std::uniform_int_distribution<int> uniform_dist(0,  num_data_points - 1); // Guaranteed unbiased
         std::vector<std::vector<float>> data_points_copy = orig_data_points;
 
         while(index < this->k * num_dimensions) {
-            int starting_val = uniform_dist(rng);
+            int starting_val = uniform_dist(random_rng);
             if(!data_points_copy[starting_val].empty()) {
                 for(int i = 0; i < num_dimensions; i++) {
                     centroids[index] = data_points_copy[starting_val][i];
@@ -218,30 +226,6 @@ private:
                   << "Unique clusters: " << final_clusters << "/" << this->k << std::endl << std::endl;
     }
 
-    static int* get_iteration_threads_and_blocks(int device_index, int num_data_points) {
-        // Gets the total number of THREADS available on the gpu
-        cudaDeviceProp deviceProp{};
-        cudaGetDeviceProperties(&deviceProp, device_index);
-        int threadsPerSM = deviceProp.maxThreadsPerMultiProcessor;
-        int SMCount = deviceProp.multiProcessorCount;
-        int TOTAL_THREADS = threadsPerSM * SMCount;
-
-        // Number of THREADS per block
-        int THREADS = 256;
-        int block_data_size = num_data_points + THREADS - 1;
-        int cluster_iterations = 1;
-        // Used to handle any number of data_points dynamically
-        if(num_data_points > TOTAL_THREADS) {
-            block_data_size = TOTAL_THREADS + THREADS - 1;
-            cluster_iterations = std::ceil(static_cast<float>(num_data_points) / static_cast<float>(TOTAL_THREADS));
-        }
-
-        // Every element remaining after dividing is allocated to an additional block
-        int BLOCKS = block_data_size / THREADS;
-
-        return new int[4]{THREADS, BLOCKS, cluster_iterations, TOTAL_THREADS};
-    }
-
     /**
      * This function is used to generate the clusters and classify the given data points.
      *
@@ -251,7 +235,7 @@ private:
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      * @return the number of iterations that have been required in order to p_fit the data.
      */
-    void p_generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points, int device_index) {
+    void p_generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points, int device_index, std::mt19937 random_rng) {
         int num_data_points = static_cast<int>(orig_data_points.size());
         int num_dimensions = static_cast<int>(orig_data_points[0].size());
 
@@ -282,6 +266,7 @@ private:
             }
 
             std::cout << "\033[1mInput data size\033[0m too big for the machine architecture!\n";
+            std::cout << "\033[1mProcessed batch size:\033[0m " << data_points_batch_size << "\n";
             std::cout << "\033[1mAlgorithm:\033[0m Mini-Batch K_Means\n";
             std::cout << "\033[1mNote:\033[0m This will result into an approximation of the standard K_Means!\n";
         }
@@ -326,11 +311,11 @@ private:
         for(int data_iteration = 0; data_iteration < n_data_iterations; data_iteration++) {
             int curr_batch_index = data_iteration * data_points_batch_size;
             // Copy the current batch's data_points
-            p_copy_data_points(data_points, orig_data_points, curr_batch_index, data_points_batch_size);
+            int actual_data_points_batch_size = p_copy_data_points(data_points, orig_data_points, curr_batch_index, data_points_batch_size);
 
             // Initialize the centroids ones in order to keep them for later batches processing
             if(data_iteration == 0)
-                p_initialize_centroids(centroids, orig_data_points);
+                p_initialize_centroids(centroids, orig_data_points, random_rng);
 
             int batch_iterations = 1;
             // Starts fitting the data_points by optimizing the centroid's positions
@@ -340,8 +325,7 @@ private:
                 // Clears the previous clusters' data
                 p_clear_clusters(this->k * data_points_batch_size * num_dimensions, clusters);
                 p_clear_distances(data_points_batch_size * this->k, distances);
-
-                p_create_and_update_clusters<<<BLOCKS, THREADS>>>(this->k, num_dimensions, data_points_batch_size, data_points, centroids, clusters, distances);
+                p_create_and_update_clusters<<<BLOCKS, THREADS>>>(this->k, num_dimensions, data_points_batch_size, actual_data_points_batch_size, data_points, centroids, clusters, distances);
 
                 // Waits for all the THREADS to finish before continuing executing code on the gpu
                 cudaDeviceSynchronize();
@@ -357,15 +341,15 @@ private:
 
                 // Updates the number of BLOCKS according to the clusters' size
                 // Every element remaining after dividing is allocated to an additional block
-                BLOCKS = (this->k + THREADS - 1) / THREADS;
+                int CLUSTERS_BLOCKS = (this->k + THREADS - 1) / THREADS;
 
                 // The previous centroids positions are saved in order to evaluate the convergence later and to check if
                 // the maximum tolerance requirement has been met.
                 for(int i = 0; i < this->k * num_dimensions; i++) {
                     prev_centroids[i] = centroids[i];
                 }
-                p_update_centroids_positions<<<BLOCKS, THREADS>>>(
-                        this->k, data_points_batch_size, num_dimensions, clusters, centroids);
+                p_update_centroids_positions<<<CLUSTERS_BLOCKS, THREADS>>>(
+                        this->k, data_points_batch_size, actual_data_points_batch_size, num_dimensions, clusters, centroids);
 
                 // Waits for all the THREADS to finish before continuing executing code on the gpu
                 cudaDeviceSynchronize();
@@ -381,7 +365,7 @@ private:
 
                 // Reset the convergence array to false
                 p_reset_convergence_values(this->k, centroids_convergence);
-                p_evaluate_centroids_convergence<<<BLOCKS, THREADS>>>(
+                p_evaluate_centroids_convergence<<<CLUSTERS_BLOCKS, THREADS>>>(
                         this->k, num_dimensions, this->max_tolerance,
                         prev_centroids, centroids, centroids_convergence);
 

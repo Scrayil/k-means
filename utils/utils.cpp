@@ -4,9 +4,7 @@
 #include <iostream>
 #include <thread>
 
-#include "../utils/utils.h"
-
-// FUNCTIONS
+#include "utils.h"
 
 /**
  * This function allows to parse and load the project's json configuration.

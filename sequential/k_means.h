@@ -6,6 +6,9 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <random>
+
+#include "../utils/utils.cuh"
 
 /**
  * K_Means is a class that implements the homonymous algorithm in order to create k clusters and classify the
@@ -65,17 +68,13 @@ public:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void fit(std::vector<std::vector<float>> data_points) {
-        if(data_points.size() < this->k) {
+    void fit(const std::vector<std::vector<float>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
+        if(orig_data_points.size() < this->k) {
             std::cout << "There can't be more clusters than data points!";
             exit(1);
         }
 
-        // Sets the initial centroids positions equal to the first data_points points ones
-        for(int i = 0; i < this->k; i++)
-            this->centroids[i] = data_points[i];
-
-        int iterations = generate_and_optimize_clusters(data_points);
+        int iterations = generate_and_optimize_clusters(orig_data_points, device_index, random_rng, data_points_batch_size);
 
         // Shows the number of iterations occurred, the clusters' sizes and the number of unique clusters identified.
         // Since there can be multiple coinciding centroids, some of them are superfluous and have no data_points points
@@ -84,6 +83,37 @@ public:
     }
 
 private:
+    static int copy_data_points(std::vector<std::vector<float>>& data_points, const std::vector<std::vector<float>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
+        int actual_data_points = 0;
+        for(int i = curr_batch_index; i < curr_batch_index + data_points_batch_size; i++)
+        {
+            if(i == orig_data_points.size())
+                break;
+            data_points[actual_data_points] = orig_data_points[i];
+            actual_data_points++;
+        }
+        return actual_data_points;
+    }
+
+    void initialize_centroids(const std::vector<std::vector<float>>& orig_data_points, std::mt19937 random_rng) {
+        int index = 0;
+        int num_data_points = static_cast<int>(orig_data_points.size());
+        std::uniform_int_distribution<int> uniform_dist(0,  num_data_points - 1); // Guaranteed unbiased
+        std::vector<std::vector<float>> data_points_copy = orig_data_points;
+
+        this->centroids.clear();
+        this->centroids.resize(this->k);
+
+        while(index < this->k) {
+            int starting_val = uniform_dist(random_rng);
+            if(!data_points_copy[starting_val].empty()) {
+                this->centroids[index] = data_points_copy[starting_val];
+                data_points_copy[starting_val].clear();
+                index++;
+            }
+        }
+    }
+
     /**
      * This function is used to generate the clusters and classify the given data points.
      *
@@ -93,32 +123,99 @@ private:
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      * @return the number of iterations that have been required in order to fit the data.
      */
-    int generate_and_optimize_clusters(const std::vector<std::vector<float>>& data_points) {
-        // Starts fitting the data_points by optimizing the centroid's positions
-        // Loops until the maximum number of iterations is reached or all the centroids converge
-        int iterations = 1;
-        for(;;)
-        {
-            // Clears the previous clusters
-            this->clusters.clear();
-            this->clusters.resize(this->k);
-            create_and_update_clusters(data_points);
+    int generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
+        int num_data_points = static_cast<int>(orig_data_points.size());
+        int num_dimensions = static_cast<int>(orig_data_points[0].size());
 
-            // The previous centroids positions are saved in order to evaluate the convergence later and to check if
-            // the maximum tolerance requirement has been met.
-            std::vector<std::vector<float>> prev_centroids = this->centroids;
-            update_centroids_positions();
-
-            bool clusters_optimized = evaluate_centroids_convergence(prev_centroids);
-            // Exits if the centroids converged or if the maximum number of iterations has been reached
-            if (clusters_optimized || iterations == this->max_iterations)
-                break;
-                // Proceeds if not all the centroids converged and either there is no maximum iteration limit
-                // or the limit has been set but not reached yet
-            else
-                iterations += 1;
+        // Retrieving the number of iterations to perform in order to handle data batches
+        int n_data_iterations = 1;
+        // Case in which the input data size is too big for the current machine architecture
+        // and there is at least one GPU available
+        if(device_index > -1) {
+            // The following part has been implemented to handle arbitrary datasets' sizes according to the GPU
+            // version for consistency while comparing
+            int* threads_blocks_iterations_info = get_iteration_threads_and_blocks(device_index, num_data_points);
+            n_data_iterations = threads_blocks_iterations_info[2];
+            data_points_batch_size = num_data_points / n_data_iterations;
         }
-        return iterations;
+        // Case in which the input data size is too big for the current machine architecture
+        // and there is no available GPU
+        else if(data_points_batch_size > 0 and num_data_points > data_points_batch_size) {
+            n_data_iterations = num_data_points / data_points_batch_size;
+        }
+        // Case in which the input data size is too big for the machine's architecture
+        else {
+            data_points_batch_size = num_data_points;
+        }
+
+        std::cout << "\033[1m"; // Bold text
+        std::cout << "*********************************************************************\n";
+        std::cout << "*                            Information                            *\n";
+        std::cout << "*********************************************************************\n";
+        std::cout << "\033[0m"; // Reset text formatting
+
+        if(n_data_iterations > 1)
+        {
+            if(this->k > data_points_batch_size) {
+                this->k = data_points_batch_size;
+                std::cout << "\033[1mN° of clusters\033[0m bigger than the maximum batch size-> reduced to: " << this->k << std::endl;
+            }
+
+            std::cout << "\033[1mInput data size\033[0m too big for the machine architecture!\n";
+            std::cout << "\033[1mProcessed batch size:\033[0m " << data_points_batch_size << "\n";
+            std::cout << "\033[1mAlgorithm:\033[0m Mini-Batch K_Means\n";
+            std::cout << "\033[1mNote:\033[0m This will result into an approximation of the standard K_Means!\n";
+        }
+        else
+            std::cout<< "\033[1mAlgorithm:\033[0m K_Means\n";
+
+        std::cout << "#####################################################################\n\n";
+
+        int total_iterations = 0;
+        for(int data_iteration = 0; data_iteration < n_data_iterations; data_iteration++) {
+            int curr_batch_index = data_iteration * data_points_batch_size;
+
+            // Copy the current batch's data_points
+            std::vector<std::vector<float>> data_points(data_points_batch_size);
+            int actual_data_points_batch_size = copy_data_points(data_points, orig_data_points, curr_batch_index, data_points_batch_size);
+
+            // Used in case the remaining elements to copy are less in number than the batches size.
+            // Truncates the vector to the remaining size
+            data_points.resize(actual_data_points_batch_size);
+
+            // Initialize the centroids ones in order to keep them for later batches processing
+            if(data_iteration == 0)
+                initialize_centroids(orig_data_points, random_rng);
+
+            int batch_iterations = 1;
+            // Starts fitting the data_points by optimizing the centroid's positions
+            // Loops until the maximum number of batch_iterations is reached or all the centroids converge
+            for(;;)
+            {
+                // Clears the previous clusters
+                this->clusters.clear();
+                this->clusters.resize(this->k);
+                create_and_update_clusters(data_points);
+
+                // The previous centroids positions are saved in order to evaluate the convergence later and to check if
+                // the maximum tolerance requirement has been met.
+                std::vector<std::vector<float>> prev_centroids = this->centroids;
+                update_centroids_positions();
+
+                bool clusters_optimized = evaluate_centroids_convergence(prev_centroids);
+
+                // Exits if the centroids converged or if the maximum number of batch_iterations has been reached
+                if (clusters_optimized || batch_iterations == this->max_iterations)
+                    break;
+                    // Proceeds if not all the centroids converged and either there is no maximum iteration limit
+                    // or the limit has been set but not reached yet
+                else
+                    batch_iterations += 1;
+
+            }
+            total_iterations += batch_iterations;
+        }
+        return total_iterations;
     }
 
     /**
@@ -134,8 +231,8 @@ private:
         // Iterates over the data_points in order to evaluate one record (data_points point) at a time
         for(std::vector<float>& data_point : data_points) {
             // Distances are cleared as they are used for the current evaluated data_points point only
-            distances.clear();
-            distances.resize(this->k);
+            this->distances.clear();
+            this->distances.resize(this->k);
             compute_data_point_distances_from_all_centroids(data_point);
 
             assign_data_point_to_nearest_cluster(data_point);
@@ -196,6 +293,7 @@ private:
                 min_distance_index = i;
             }
         }
+
         // Assigns the data_points point to the nearest centroid
         this->clusters[min_distance_index].push_back(data_point);
     }
@@ -257,8 +355,7 @@ private:
      * @return the 'cluster_optimized' flag.
      */
     bool evaluate_convergence(bool clusters_optimized, int centroid_index, std::vector<float> current_centroid, std::vector<float> original_centroid) {
-        // Evaluating the variations between the current and previous centroid positions with an arithmetic
-        // sum
+        // Evaluating the variations between the current and previous centroid positions with an arithmetic sum
         float sum = 0;
         for(int l = 0; l < this->centroids[centroid_index].size(); l++)
             sum += (current_centroid[l] - original_centroid[l]) / original_centroid[l] * 100.f;
@@ -314,16 +411,19 @@ private:
      * optimization.
      */
     void show_results(int iterations) {
-        std::string clusters_sizes;
+        std::string centroids_centers;
         int final_clusters = 0;
-        for(int cluster_index = 0; cluster_index < this->k; cluster_index++)
+        for(int cluster_index = 0; cluster_index < this->k; cluster_index++) {
             if(!this->clusters[cluster_index].empty()) {
-                clusters_sizes += "\n    C" + std::to_string(cluster_index + 1) + ": "
-                                  + std::to_string(this->clusters[cluster_index].size());
+                centroids_centers += "\n    C" + std::to_string(cluster_index + 1) + ":\n    [";
+                for(float value : this->centroids[cluster_index])
+                    centroids_centers += "\n        " + std::to_string(value) + ",";
+                centroids_centers = centroids_centers.substr(0, centroids_centers.size() - 1) + "\n    ]";
                 final_clusters += 1;
             }
+        }
 
-        std::cout << "Iterations: " << iterations << "\n[" << clusters_sizes << "\n]\n"
+        std::cout << "Iterations: " << iterations << "\n[" << centroids_centers << "\n]\n"
                   << "Unique clusters: " << final_clusters << "/" << this->k << std::endl << std::endl;
     }
 };

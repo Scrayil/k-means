@@ -38,7 +38,7 @@ add_executable(k_means main.cpp
         sequential/k_means.h
         parallel/parallel_version.cu parallel/parallel_version.cuh
         parallel/k_means.cuh
-        utils/utils.cpp utils/utils.h)
+        utils/utils.cu utils/utils.cuh utils/utils.cpp utils/utils.h)
 ############################################################################################################################
 # EXTERNAL LIBRARIES
 target_include_directories(k_means PRIVATE external)

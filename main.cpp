@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <random>
 
 #include "json.hpp"
 #include "utils/utils.h"
@@ -12,6 +13,7 @@
 
 // PROTOTYPES
 std::vector<std::vector<float>> load_dataset(const std::filesystem::path& project_path, int max_data_points);
+std::mt19937 evaluate_seed(long seed, long &processed_seed);
 
 
 // FUNCTIONS
@@ -39,6 +41,17 @@ int main() {
     float max_tolerance = kmeans_params["max_tolerance"];
     int max_iterations = kmeans_params["max_iterations"];
 
+    // Used in case the input data is too big to be handled with the current architecture and there is no available GPU
+    int batch_size = -1;
+    if(config.contains("batch_size"))
+        batch_size = kmeans_params["batch_size"];
+
+    // Used for the initial centroids assignment in order to be consistent between the two program versions
+    long final_seed = -1;
+    long random_seed = -1;
+    if(config.contains("random_seed"))
+        random_seed = config["random_seed"];
+
     // Loading the dataset
     // Retrieves the data_points number limit
     int max_data_points = config["limit_data_points_to"];
@@ -51,13 +64,15 @@ int main() {
 
     // Tests the 2 versions non-stop with the given configuration
     for(int i = 0; i < n_executions; i++) {
+        // Evaluating seeds
+        std::mt19937 processed_rng = evaluate_seed(random_seed, final_seed);
 
         // SEQUENTIAL VERSION
         if(config["execute_sequential"]) {
             std::cout << "\n\nSEQUENTIAL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            sequential_version(data, n_clusters, max_tolerance, max_iterations);
+            sequential_version(data, n_clusters, max_tolerance, max_iterations, processed_rng, batch_size);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
@@ -74,7 +89,7 @@ int main() {
             std::cout << "\n\nPARALLEL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            parallel_version(data, n_clusters, max_tolerance, max_iterations);
+            parallel_version(data, n_clusters, max_tolerance, max_iterations, processed_rng);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
@@ -117,4 +132,30 @@ std::vector<std::vector<float>> load_dataset(const std::filesystem::path& projec
     }
 
     return X;
+}
+
+
+/**
+ * This function is used to initialize the random-number engine.
+ *
+ * The function is used to set the specified seed value and initialize the engine.
+ * If the seed has not been specified, a new random seed is generated with "/dev/random"
+ * @param seed Allows to specify the seed to use if set.
+ * @param processed_seed This variable will contain the final chosen seed.
+ * @param operation This is the string used in order to print the proper seed category on screen.
+ * @return The initialized random number engine to use for random values generation.
+ */
+std::mt19937 evaluate_seed(long seed, long &processed_seed) {
+    // If the seed has not been set or is equal to -1
+    // Generates a random seed with /dev/random
+    if(seed == -1) {
+        std::random_device rd;
+        processed_seed = rd();
+    }
+
+    std::cout << "Current seed: " << processed_seed << std::endl;
+
+    // Used to set a new seed everytime
+    std::mt19937 rng(processed_seed); // Random-number engine used (Mersenne-Twister in this case)
+    return rng;
 }

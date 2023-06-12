@@ -5,6 +5,6 @@
 
 #include <vector>
 
-void sequential_version(std::vector<std::vector<float>> data, int clusters, float max_tolerance, int max_iterations, std::mt19937 random_rng, int data_points_batch_size);
+void sequential_version(std::vector<std::vector<double>> data, int clusters, double max_tolerance, int max_iterations, std::mt19937 random_rng, int data_points_batch_size);
 
 #endif //K_MEANS_SEQUENTIAL_VERSION_H

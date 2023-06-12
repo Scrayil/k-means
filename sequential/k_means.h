@@ -18,14 +18,14 @@
  */
 class K_Means {
     int k;
-    float max_tolerance;
+    double max_tolerance;
     int max_iterations;
     /// This vector stores the clusters' averages data points, that are called "centroid" of the clusters.
-    std::vector<std::vector<float>> centroids;
+    std::vector<std::vector<double>> centroids;
     /// This vector is used to store the distances of a single data point from all the centroids.
-    std::vector<float> distances;
+    std::vector<double> distances;
     /// This vector contains all the data points clustered by centroids' indexes.
-    std::vector<std::vector<std::vector<float>>> clusters;
+    std::vector<std::vector<std::vector<double>>> clusters;
 
 public:
     /**
@@ -39,7 +39,7 @@ public:
      *
      * @return the instance of the class
      */
-    explicit K_Means(int k = 2, float max_tolerance = 0, int max_iterations = -1) {
+    explicit K_Means(int k = 2, double max_tolerance = 0, int max_iterations = -1) {
         this->k = k;
         this->max_tolerance = max_tolerance;
         this->max_iterations = max_iterations;
@@ -68,7 +68,7 @@ public:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void fit(const std::vector<std::vector<float>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
+    void fit(const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
         if(orig_data_points.size() < this->k) {
             std::cout << "There can't be more clusters than data points!";
             exit(1);
@@ -83,7 +83,7 @@ public:
     }
 
 private:
-    static int copy_data_points(std::vector<std::vector<float>>& data_points, const std::vector<std::vector<float>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
+    static int copy_data_points(std::vector<std::vector<double>>& data_points, const std::vector<std::vector<double>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
         int actual_data_points = 0;
         for(int i = curr_batch_index; i < curr_batch_index + data_points_batch_size; i++)
         {
@@ -95,11 +95,11 @@ private:
         return actual_data_points;
     }
 
-    void initialize_centroids(const std::vector<std::vector<float>>& orig_data_points, std::mt19937 random_rng) {
+    void initialize_centroids(const std::vector<std::vector<double>>& orig_data_points, std::mt19937 random_rng) {
         int index = 0;
         int num_data_points = static_cast<int>(orig_data_points.size());
         std::uniform_int_distribution<int> uniform_dist(0,  num_data_points - 1); // Guaranteed unbiased
-        std::vector<std::vector<float>> data_points_copy = orig_data_points;
+        std::vector<std::vector<double>> data_points_copy = orig_data_points;
 
         this->centroids.clear();
         this->centroids.resize(this->k);
@@ -123,9 +123,9 @@ private:
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      * @return the number of iterations that have been required in order to fit the data.
      */
-    int generate_and_optimize_clusters(const std::vector<std::vector<float>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
+    int generate_and_optimize_clusters(const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
         int num_data_points = static_cast<int>(orig_data_points.size());
-        int num_dimensions = static_cast<int>(orig_data_points[0].size());
+//        int num_dimensions = static_cast<int>(orig_data_points[0].size());
 
         // Retrieving the number of iterations to perform in order to handle data batches
         int n_data_iterations = 1;
@@ -134,9 +134,9 @@ private:
         if(device_index > -1) {
             // The following part has been implemented to handle arbitrary datasets' sizes according to the GPU
             // version for consistency while comparing
-            int* threads_blocks_iterations_info = get_iteration_threads_and_blocks(device_index, num_data_points);
+            int* threads_blocks_iterations_info = get_iteration_threads_and_blocks(device_index, num_data_points, data_points_batch_size);
             n_data_iterations = threads_blocks_iterations_info[2];
-            data_points_batch_size = num_data_points / n_data_iterations;
+            data_points_batch_size = threads_blocks_iterations_info[4];
         }
         // Case in which the input data size is too big for the current machine architecture
         // and there is no available GPU
@@ -176,7 +176,7 @@ private:
             int curr_batch_index = data_iteration * data_points_batch_size;
 
             // Copy the current batch's data_points
-            std::vector<std::vector<float>> data_points(data_points_batch_size);
+            std::vector<std::vector<double>> data_points(data_points_batch_size);
             int actual_data_points_batch_size = copy_data_points(data_points, orig_data_points, curr_batch_index, data_points_batch_size);
 
             // Used in case the remaining elements to copy are less in number than the batches size.
@@ -199,7 +199,7 @@ private:
 
                 // The previous centroids positions are saved in order to evaluate the convergence later and to check if
                 // the maximum tolerance requirement has been met.
-                std::vector<std::vector<float>> prev_centroids = this->centroids;
+                std::vector<std::vector<double>> prev_centroids = this->centroids;
                 update_centroids_positions();
 
                 bool clusters_optimized = evaluate_centroids_convergence(prev_centroids);
@@ -227,9 +227,9 @@ private:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void create_and_update_clusters(std::vector<std::vector<float>> data_points) {
+    void create_and_update_clusters(std::vector<std::vector<double>> data_points) {
         // Iterates over the data_points in order to evaluate one record (data_points point) at a time
-        for(std::vector<float>& data_point : data_points) {
+        for(std::vector<double>& data_point : data_points) {
             // Distances are cleared as they are used for the current evaluated data_points point only
             this->distances.clear();
             this->distances.resize(this->k);
@@ -246,7 +246,7 @@ private:
      *
      * @param data_point This is the single data point for which the distances are being calculated.
      */
-    void compute_data_point_distances_from_all_centroids(std::vector<float>& data_point) {
+    void compute_data_point_distances_from_all_centroids(std::vector<double>& data_point) {
         // Iterates over all the centroids in order to calculate the distance of the data_points point from all of
         // them. Then creates a new cluster in which the data_points point is assigned to the nearest centroid.
         for(int centroid_index = 0; centroid_index < this->centroids.size(); centroid_index++) {
@@ -263,17 +263,17 @@ private:
      * @param centroid_index This is the index related to the currently considered centroid.
      * @return the distance of the data point from the centroid.
      */
-    float compute_distance_from_centroid(std::vector<float>& data_point, int centroid_index) {
+    double compute_distance_from_centroid(std::vector<double>& data_point, int centroid_index) {
         // Computes the norm of the vector connecting the data point to the current centroid in order to
         // get the distance in between.
-        float squared_differences_sum = 0;
+        double squared_differences_sum = 0;
         for(int i = 0; i < data_point.size(); i++) {
-            float curr_difference = data_point[i] - this->centroids[centroid_index][i];
-            float squared_difference = curr_difference * curr_difference;
+            double curr_difference = data_point[i] - this->centroids[centroid_index][i];
+            double squared_difference = curr_difference * curr_difference;
             squared_differences_sum += squared_difference;
         }
         // This is the resulting norm (distance)
-        return std::sqrt(squared_differences_sum);
+        return sqrtf(squared_differences_sum);
     }
 
     /**
@@ -284,7 +284,7 @@ private:
      *
      * @param data_point This is the single data point for which the distances are being calculated.
      */
-    void assign_data_point_to_nearest_cluster(std::vector<float>& data_point) {
+    void assign_data_point_to_nearest_cluster(std::vector<double>& data_point) {
         // Retrieves the index of the data point's minimum distance from a centroid in order to assign
         // the point to it (the nearest centroid).
         int min_distance_index = 0;
@@ -324,13 +324,13 @@ private:
      *
      * @return a boolean flag that tells the caller method if all centroids converge or not.
      */
-    bool evaluate_centroids_convergence(std::vector<std::vector<float>> prev_centroids) {
+    bool evaluate_centroids_convergence(std::vector<std::vector<double>> prev_centroids) {
         // Iterates over all the centroids in order to evaluate if they converged or their movement respects the
         // maximum tolerance allowed, by comparing them with their previous positions.
         bool clusters_optimized = true;
         for(int centroid_index = 0; centroid_index < this->centroids.size(); centroid_index++) {
-            std::vector<float> original_centroid = prev_centroids[centroid_index];
-            std::vector<float> current_centroid = this->centroids[centroid_index];
+            std::vector<double> original_centroid = prev_centroids[centroid_index];
+            std::vector<double> current_centroid = this->centroids[centroid_index];
 
             clusters_optimized = evaluate_convergence(clusters_optimized, centroid_index, current_centroid, original_centroid);
             // There is no need to check if the other centroids converge or meet the tolerance requirement as there
@@ -354,15 +354,15 @@ private:
      * @param original_centroid Previous centroid's position.
      * @return the 'cluster_optimized' flag.
      */
-    bool evaluate_convergence(bool clusters_optimized, int centroid_index, std::vector<float> current_centroid, std::vector<float> original_centroid) {
+    bool evaluate_convergence(bool clusters_optimized, int centroid_index, std::vector<double> current_centroid, std::vector<double> original_centroid) {
         // Evaluating the variations between the current and previous centroid positions with an arithmetic sum
-        float sum = 0;
+        double sum = 0;
         for(int l = 0; l < this->centroids[centroid_index].size(); l++)
             sum += (current_centroid[l] - original_centroid[l]) / original_centroid[l] * 100.f;
 
         // If the absolute value of the computed sum is greater than the maximum tolerance the centroid has not
         // met the requirement yet, and it has not converged.
-        if (std::abs(sum) > this->max_tolerance)
+        if (fabs(sum) > this->max_tolerance)
             clusters_optimized = false;
 
         return clusters_optimized;
@@ -378,8 +378,8 @@ private:
      * @param cluster This is a vector that contains all the data points for which the average is being computed.
      * @return the new centroid's position based onto the computed average.
      */
-    static std::vector<float> get_new_centroid_position(const std::vector<std::vector<float>>& cluster) {
-        std::vector<float> new_centroid_position;
+    static std::vector<double> get_new_centroid_position(const std::vector<std::vector<double>>& cluster) {
+        std::vector<double> new_centroid_position;
         // A cluster is empty if no data points have been assigned to that specific centroid.
         // This might happen in case of coinciding centroids as data points have already been assigned to another one
         // So the centroid is currently redundant. The centroid might get re-used in a later moment if the one with
@@ -390,12 +390,12 @@ private:
             for(int i = 0; i < cluster[0].size(); i++) {
                 // Computes the sum of all the coordinates of the data points, one at a time, respectively.
                 // Example: the sum of (x1, y1, z1) and (x2, y2, z2) returns (x1 + x2, y1 + y2, z1 + z2)
-                float curr_sum = 0.f;
+                double curr_sum = 0.f;
                 // Iterates over all the data points in the cluster
-                for (std::vector<float> element : cluster) {
+                for (std::vector<double> element : cluster) {
                     curr_sum += element[i];
                 }
-                new_centroid_position.push_back(curr_sum / static_cast<float>(cluster.size()));
+                new_centroid_position.push_back(curr_sum / static_cast<double>(cluster.size()));
             }
         }
         return new_centroid_position;
@@ -416,7 +416,7 @@ private:
         for(int cluster_index = 0; cluster_index < this->k; cluster_index++) {
             if(!this->clusters[cluster_index].empty()) {
                 centroids_centers += "\n    C" + std::to_string(cluster_index + 1) + ":\n    [";
-                for(float value : this->centroids[cluster_index])
+                for(double value : this->centroids[cluster_index])
                     centroids_centers += "\n        " + std::to_string(value) + ",";
                 centroids_centers = centroids_centers.substr(0, centroids_centers.size() - 1) + "\n    ]";
                 final_clusters += 1;

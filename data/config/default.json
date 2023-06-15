@@ -3,8 +3,9 @@
   "execute_sequential": true,
   "execute_parallel": true,
   "limit_data_points_to": -1,
+  "random_seed": 0,
   "k_means": {
-    "n_clusters": 40,
+    "n_clusters": 2,
     "max_tolerance": 0,
     "max_iterations": -1,
     "batch_size": -1

@@ -26,18 +26,6 @@ __global__ void p_clear_clusters_and_distances(int num_clusters, int num_dimensi
     }
 }
 
-__global__ void p_clear_clusters_and_distances(int num_clusters, int num_dimensions, int data_points_batch_size, double* clusters, double* distances) {
-    int cluster_index = blockDim.x * blockIdx.x + threadIdx.x;
-    if (cluster_index < num_clusters) {
-        int cluster_width = data_points_batch_size * num_dimensions;
-        int index = 0;
-
-        for (; index < cluster_width; index++)
-            clusters[cluster_index * cluster_width + index] = -1;
-        for (index = 0; index < data_points_batch_size; index++)
-            distances[cluster_index * data_points_batch_size + index] = 0;
-    }
-}
 
 // Executed for any single data point simultaneously on multiple threads
 __global__ void p_create_and_update_clusters(int n_clusters, int num_dimensions, int data_points_batch_size, int actual_data_points_batch_size, const double* data_points, const double* centroids, double* clusters, double* distances) {
@@ -77,15 +65,17 @@ __global__ void p_update_centroids_and_evaluate_convergence(int num_clusters, in
     if(cluster_index < num_clusters) {
         // Used while iterating over all the centroids coordinates in order to evaluate if they converged or their movement respects the
         // maximum tolerance allowed, by comparing them with their previous positions.
-        double sum = 0.f;
-        double cluster_elements = 0.f;
-        for(int j = 0; j < num_dimensions; j++) {
-            double curr_sum = 0.f;
-            for(int point_index = 0; point_index < actual_data_points_size; point_index++) {
-                if(clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions] != -1) {
-                    if(j == 0)
+        double sum = 0.0;
+        double cluster_elements = 0.0;
+
+        for (int j = 0; j < num_dimensions; j++) {
+            double curr_sum = 0.0;
+            for (int point_index = 0; point_index < actual_data_points_size; point_index++) {
+                int dataIndex = cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions + j;
+                if (clusters[dataIndex] != -1.0) {
+                    if (j == 0)
                         cluster_elements++;
-                    curr_sum += clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions + j];
+                    curr_sum += clusters[dataIndex];
                 }
             }
             // The previous dev_centroids positions are saved in order to evaluate the convergence later and to check if
@@ -93,19 +83,57 @@ __global__ void p_update_centroids_and_evaluate_convergence(int num_clusters, in
             prev_centroids[cluster_index * num_dimensions + j] = centroids[cluster_index * num_dimensions + j];
             centroids[cluster_index * num_dimensions + j] = curr_sum / cluster_elements;
 
-
             // Used to evaluate the convergence later
             sum += (centroids[cluster_index * num_dimensions + j] - prev_centroids[cluster_index * num_dimensions + j])
-                   / centroids[cluster_index * num_dimensions + j] * 100.f;
+                   / centroids[cluster_index * num_dimensions + j] * 100.0;
         }
 
         // Evaluating the convergence for the current centroid
         // fabs on GPU is better to handle single precision numbers
-        if(fabs(sum) > max_tolerance) {
+        if (fabs(sum) > max_tolerance) {
             *clusters_optimized = false;
         }
     }
 }
+
+//// Todo: find a way to greatly optimize and speed up the function
+//// Executed for each centroid on multiple threads simultaneously
+//__global__ void p_update_centroids_and_evaluate_convergence(int num_clusters, int data_points_batch_size, int actual_data_points_size, int num_dimensions, double max_tolerance, const double* clusters, double* centroids, double* prev_centroids, bool* clusters_optimized) {
+//    int cluster_index = blockDim.x * blockIdx.x + threadIdx.x;
+//    if(cluster_index < num_clusters) {
+//        // Used while iterating over all the centroids coordinates in order to evaluate if they converged or their movement respects the
+//        // maximum tolerance allowed, by comparing them with their previous positions.
+//        double sum = 0.f;
+//        double cluster_elements = 0.f;
+//        for(int j = 0; j < num_dimensions; j++) {
+//            double curr_sum = 0.f;
+//            for(int point_index = 0; point_index < actual_data_points_size; point_index++) {
+//                if(clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions] != -1) {
+//                    if(j == 0)
+//                        cluster_elements++;
+//                    curr_sum += clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions + j];
+//                }
+//            }
+//            // The previous dev_centroids positions are saved in order to evaluate the convergence later and to check if
+//            // the maximum tolerance requirement has been met.
+//            prev_centroids[cluster_index * num_dimensions + j] = centroids[cluster_index * num_dimensions + j];
+//            centroids[cluster_index * num_dimensions + j] = curr_sum / cluster_elements;
+//
+//
+//            // Used to evaluate the convergence later
+//            sum += (centroids[cluster_index * num_dimensions + j] - prev_centroids[cluster_index * num_dimensions + j])
+//                   / centroids[cluster_index * num_dimensions + j] * 100.f;
+//        }
+//
+//        // Evaluating the convergence for the current centroid
+//        // fabs on GPU is better to handle single precision numbers
+//        if(fabs(sum) > max_tolerance) {
+//            *clusters_optimized = false;
+//        }
+//    }
+//}
+
+
 
 
 /**
@@ -279,7 +307,7 @@ private:
         std::cout << "*********************************************************************\n";
         std::cout << "\033[0m"; // Reset text formatting
         std::cout << "\033[1mSelected GPU Idx:\033[0m " << device_index << "\n";
-        std::cout << "\033[1mN° GPU threads:\033[0m " << total_threads << "\n";
+        std::cout << "\033[1mN° GPU threads used:\033[0m " << BLOCKS * THREADS << "/" << total_threads << "\n";
 
         if(n_data_iterations > 1)
         {

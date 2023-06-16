@@ -273,7 +273,7 @@ private:
             squared_differences_sum += squared_difference;
         }
         // This is the resulting norm (distance)
-        return sqrtf(squared_differences_sum);
+        return std::sqrt(squared_differences_sum);
     }
 
     /**
@@ -362,7 +362,7 @@ private:
 
         // If the absolute value of the computed sum is greater than the maximum tolerance the centroid has not
         // met the requirement yet, and it has not converged.
-        if (fabs(sum) > this->max_tolerance)
+        if (std::abs(sum) > this->max_tolerance)
             clusters_optimized = false;
 
         return clusters_optimized;

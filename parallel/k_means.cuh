@@ -57,8 +57,6 @@ __global__ void p_generate_and_optimize_clusters(int total_blocks, int* total_it
             // Synchronizes all threads within each block again in order to wait for thread with index 0 to finish
             __syncthreads();
 
-//            printf("1\n");
-
             // UPDATING THE CLUSTERS
 
             if (unique_index < actual_data_points_size) {
@@ -108,7 +106,6 @@ __global__ void p_generate_and_optimize_clusters(int total_blocks, int* total_it
             // Synchronizes all threads within each block again in order to wait for thread with index 0 to finish
             __syncthreads();
 
-//            printf("2\n");
 
             // UPDATING THE CENTROIDS
 
@@ -168,7 +165,6 @@ __global__ void p_generate_and_optimize_clusters(int total_blocks, int* total_it
             // Synchronizes all threads within each block again in order to wait for thread with index 0 to finish
             __syncthreads();
 
-//            printf("3\n");
 
             // EVALUATING THE OVERALL CONVERGENCE
 
@@ -183,7 +179,6 @@ __global__ void p_generate_and_optimize_clusters(int total_blocks, int* total_it
         // Only one thread must update this variable
         if (unique_index == 0)
             *total_iterations += batch_iterations;
-//        printf("W\n");
     }
 }
 

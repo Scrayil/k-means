@@ -47,10 +47,10 @@ int main() {
         batch_size = kmeans_params["batch_size"];
 
     // Used for the initial centroids assignment in order to be consistent between the two program versions
-    long final_seed = -1;
     long random_seed = -1;
     if(config.contains("random_seed"))
         random_seed = config["random_seed"];
+    long final_seed = random_seed;
 
     // Loading the dataset
     // Retrieves the data_points number limit

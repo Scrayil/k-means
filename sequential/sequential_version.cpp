@@ -12,8 +12,6 @@ void sequential_version(std::vector<std::vector<double>> data, int clusters, dou
     // Check implemented to split huge data where necessary, according to the GPUs architecture and parallel
     // version of the program
     int device_index = perform_gpu_check();
-    if(device_index > -1) {
-        K_Means k_means = K_Means(clusters, max_tolerance, max_iterations);
-        k_means.fit(data, device_index, random_rng, data_points_batch_size);
-    }
+    K_Means k_means = K_Means(clusters, max_tolerance, max_iterations);
+    k_means.fit(data, device_index, random_rng, data_points_batch_size);
 }

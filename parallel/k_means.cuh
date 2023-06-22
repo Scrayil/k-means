@@ -197,7 +197,7 @@ public:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void p_fit(const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size) {
+    void p_fit(std::vector<std::vector<double>>& final_centroids, int& total_iterations, const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size) {
         if(orig_data_points.size() < this->k) {
             std::cout << "There can't be more clusters than data points!";
             exit(1);
@@ -305,7 +305,7 @@ public:
 
         // EXECUTING THE ALGORITHM
 
-        int total_iterations = 0;
+        total_iterations = 0;
         for(int data_iteration = 0; data_iteration < n_data_iterations; data_iteration++) {
             int curr_batch_index = data_iteration * data_points_batch_size;
             // Copy the current batch's dev_data_points
@@ -418,6 +418,18 @@ public:
         // Since there can be multiple coinciding dev_centroids, some of them are superfluous and have no dev_data_points points
         // assigned to them.
         p_show_results(total_iterations, data_points_batch_size, num_dimensions, clusters, centroids);
+
+        // Copying the resulting centroids to the final container
+        final_centroids.resize(this->k);
+        int index = 0;
+        for(int cluster_index = 0; cluster_index < this->k; cluster_index++) {
+            std::vector<double> curr_centroid(num_dimensions);
+            for(int dimension = 0; dimension < num_dimensions; dimension++) {
+                curr_centroid[dimension] = centroids[index];
+                index++;
+            }
+            final_centroids[cluster_index] = curr_centroid;
+        }
 
         // Clears all the allocated memory and releases the resources
         P_K_Means::release_all_memory(dev_data_points, dev_centroids, dev_prev_centroids, dev_distances, dev_clusters, dev_clusters_optimized, data_points, centroids, clusters, clusters_optimized);

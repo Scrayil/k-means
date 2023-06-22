@@ -14,6 +14,8 @@
 // PROTOTYPES
 std::vector<std::vector<double>> load_dataset(const std::filesystem::path& project_path, int max_data_points);
 std::mt19937 evaluate_seed(long seed, long &processed_seed);
+void save_results(std::filesystem::path &project_folder, bool is_sequential, long &final_seed, double &elapsed_milliseconds, int n_data_points, int n_dimensions, int n_clusters, double max_tolerance, int total_iterations, std::vector<std::vector<double>>& centroids);
+std::filesystem::path save_centroids(std::filesystem::path &centroids_path, std::string &version, std::vector<std::vector<double>>& centroids, long solution_seed);
 
 
 // FUNCTIONS
@@ -62,6 +64,10 @@ int main() {
     std::chrono::high_resolution_clock::time_point end_ts;
     double elapsed_milliseconds;
 
+    // Initializing the counter of total iterations
+    int total_iterations;
+    std::vector<std::vector<double>> centroids;
+
     // Tests the 2 versions non-stop with the given configuration
     for(int i = 0; i < n_executions; i++) {
         // Evaluating seeds
@@ -69,34 +75,38 @@ int main() {
 
         // SEQUENTIAL VERSION
         if(config["execute_sequential"]) {
+            total_iterations = 0;
+            centroids.clear();
             std::cout << "\n\nSEQUENTIAL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            sequential_version(data, n_clusters, max_tolerance, max_iterations, processed_rng, batch_size);
+            sequential_version(centroids, data, n_clusters, max_tolerance, max_iterations, total_iterations, processed_rng, batch_size);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
             std::cout << std::fixed << std::setprecision(3);
             std::cout << "The execution took " << elapsed_milliseconds << " ms" << std::endl;
 
-            // Todo: Implement function to save results
+            save_results(project_folder, true, final_seed, elapsed_milliseconds, data.size(), data[0].size(), n_clusters, max_tolerance, total_iterations, centroids);
 
             std::cout << "---------------------------------------------------------------------" << std::endl;
         }
 
         // PARALLEL VERSION
         if(config["execute_parallel"]) {
+            total_iterations = 0;
+            centroids.clear();
             std::cout << "\n\nPARALLEL VERSION:\n" << std::endl;
             start_ts = std::chrono::high_resolution_clock::now();
 
-            parallel_version(data, n_clusters, max_tolerance, max_iterations, processed_rng, batch_size);
+            parallel_version(centroids, data, n_clusters, max_tolerance, max_iterations, total_iterations, processed_rng, batch_size);
 
             end_ts = std::chrono::high_resolution_clock::now();
             elapsed_milliseconds = duration_cast<std::chrono::microseconds>(end_ts-start_ts).count() / 1000.f;
             std::cout << std::fixed << std::setprecision(3);
             std::cout << "The execution took " << elapsed_milliseconds << " ms" << std::endl;
 
-            // Todo: Implement function to save results
+            save_results(project_folder, false, final_seed, elapsed_milliseconds, data.size(), data[0].size(), n_clusters, max_tolerance, total_iterations, centroids);
 
         }
 
@@ -158,4 +168,59 @@ std::mt19937 evaluate_seed(long seed, long &processed_seed) {
     // Used to set a new seed everytime
     std::mt19937 rng(processed_seed); // Random-number engine used (Mersenne-Twister in this case)
     return rng;
+}
+
+
+void save_results(std::filesystem::path &project_folder, bool is_sequential, long &final_seed, double &elapsed_milliseconds, int n_data_points, int n_dimensions, int n_clusters, double max_tolerance, int total_iterations, std::vector<std::vector<double>>& centroids) {
+    std::cout << "Saving the results.." << std::endl;
+
+    std::string version = is_sequential ? "sequential" : "parallel";
+
+    std::filesystem::path centroids_path = project_folder / "results" / "centroids";
+
+    // Creating the directories if they don't exist
+    if(!std::filesystem::is_directory(centroids_path) || !std::filesystem::exists(centroids_path))
+        std::filesystem::create_directories(centroids_path);
+
+    // Saving the maze's image
+    std::filesystem::path curr_centroids_path = save_centroids(centroids_path, version, centroids, final_seed);
+
+    // Writing/appending to the report file
+    std::filesystem::path report_path = project_folder / "results" / "executions_report.csv";
+    std::ofstream report_file;
+    if(!std::filesystem::exists(report_path)) {
+        report_file.open(report_path.c_str(), std::fstream::app);
+        report_file << "version,elapsed_time,n_data_points,n_features,n_clusters,max_tolerance,total_iterations,random_seed,centroids_data_path";
+    } else {
+        report_file.open(report_path.c_str(), std::fstream::app);
+    }
+
+    // Saves the current record
+    report_file << "\n" << version << "," << elapsed_milliseconds << "," << n_data_points << "," << n_dimensions << "," << n_clusters << "," << max_tolerance << "," << total_iterations<< "," << final_seed << "," << curr_centroids_path;
+
+    // Closing the file
+    report_file.close();
+}
+
+std::filesystem::path save_centroids(std::filesystem::path &centroids_path, std::string &version, std::vector<std::vector<double>>& centroids, long solution_seed) {
+    // Building the unique image path
+    std::time_t now = std::chrono::high_resolution_clock::to_time_t(std::chrono::high_resolution_clock::now());
+    char buf[256] = { 0 };
+    // ISO 8601 format for the timestamp
+    std::strftime(buf, sizeof(buf), "%y-%m-%dT%H:%M:%S", std::localtime(&now));
+    // Here the seed is added in order to avoid multiple images to have the same filename
+    centroids_path = centroids_path / (version + "_" + std::string(buf) + "_" + std::to_string(solution_seed) + ".json");
+
+    // Generating the json object that represents the centroids
+    nlohmann::ordered_json centroids_obj;
+    for(int cluster_index = 0; cluster_index < centroids.size(); cluster_index++) {
+        centroids_obj[std::to_string(cluster_index)] = centroids[cluster_index];
+    }
+
+    // Saving the image to the disk
+    std::ofstream output_file(centroids_path.c_str());
+    output_file << centroids_obj.dump(4);
+    output_file.close();
+
+    return centroids_path;
 }

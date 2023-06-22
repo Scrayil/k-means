@@ -68,18 +68,20 @@ public:
      *
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
-    void fit(const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
+    void fit(std::vector<std::vector<double>>& centroids, int& total_iterations, const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
         if(orig_data_points.size() < this->k) {
             std::cout << "There can't be more clusters than data points!";
             exit(1);
         }
 
-        int iterations = generate_and_optimize_clusters(orig_data_points, device_index, random_rng, data_points_batch_size);
+        total_iterations = generate_and_optimize_clusters(orig_data_points, device_index, random_rng, data_points_batch_size);
 
         // Shows the number of iterations occurred, the clusters' sizes and the number of unique clusters identified.
         // Since there can be multiple coinciding centroids, some of them are superfluous and have no data_points points
         // assigned to them.
-        show_results(iterations);
+        show_results(total_iterations);
+
+        centroids = this->centroids;
     }
 
 private:

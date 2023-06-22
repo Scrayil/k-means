@@ -125,7 +125,7 @@ private:
      */
     int generate_and_optimize_clusters(const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
         int num_data_points = static_cast<int>(orig_data_points.size());
-//        int num_dimensions = static_cast<int>(orig_data_points[0].size());
+        int num_dimensions = static_cast<int>(orig_data_points[0].size());
 
         // Retrieving the number of iterations to perform in order to handle data batches
         int n_data_iterations = 1;
@@ -153,6 +153,8 @@ private:
         std::cout << "*                            Information                            *\n";
         std::cout << "*********************************************************************\n";
         std::cout << "\033[0m"; // Reset text formatting
+        std::cout << "\033[1mN° Records:\033[0m " << num_data_points << "\n";
+        std::cout << "\033[1mN° Features:\033[0m " << num_dimensions << "\n";
 
         if(n_data_iterations > 1)
         {

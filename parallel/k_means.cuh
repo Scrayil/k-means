@@ -30,7 +30,7 @@ __global__ void p_generate_and_optimize_clusters(int num_dimensions, int num_clu
         for(int cluster_num = 0; cluster_num < num_clusters; cluster_num++) {
             int base_cluster_index = cluster_num * data_points_batch_size;
             for(int dimension = 0; dimension < num_dimensions; dimension++)
-                clusters[base_cluster_index * num_dimensions + point_base_index + dimension] = -1;
+                clusters[base_cluster_index * num_dimensions + point_base_index + dimension] = nan("");
             distances[base_cluster_index + unique_index] = 0;
         }
 
@@ -98,7 +98,7 @@ __global__ void p_update_and_evaluate_centroids(double max_tolerance, int num_di
             for (int point_index = curr_cluster_start_index; point_index < curr_cluster_start_index + curr_worker_inner_batch; point_index++) {
 //                if(point_index < actual_data_points_size) {
                     int cluster_data_index = base_cluster_data_index + point_index * num_dimensions + dimension;
-                    if (clusters[cluster_data_index] != -1.0) {
+                    if (!isnan(clusters[cluster_data_index])) {
                         cluster_sums[threadIdx.x] += clusters[cluster_data_index];
                         workers_cluster_elements[threadIdx.x] += 1;
                     }
@@ -225,6 +225,8 @@ public:
         std::cout << "\033[0m"; // Reset text formatting
         std::cout << "\033[1mSelected GPU Idx:\033[0m " << device_index << "\n";
         std::cout << "\033[1mN° GPU threads:\033[0m " << total_threads << "\n";
+        std::cout << "\033[1mN° Records:\033[0m " << num_data_points << "\n";
+        std::cout << "\033[1mN° Features:\033[0m " << num_dimensions << "\n";
 
         if(n_data_iterations > 1)
         {
@@ -488,7 +490,7 @@ private:
         for(int cluster_index = 0; cluster_index < this->k; cluster_index++) {
             int cluster_size = 0;
             for(int point_index = 0; point_index < data_points_batch_size; point_index++) {
-                if(clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions] != -1)
+                if(!std::isnan(clusters[cluster_index * data_points_batch_size * num_dimensions + point_index * num_dimensions]))
                 {
                     cluster_size++;
                 }

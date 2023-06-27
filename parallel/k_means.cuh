@@ -198,8 +198,8 @@ public:
      * @param data_points This is the vector that contains all the data points that are going to be clustered.
      */
     void p_fit(std::vector<std::vector<double>>& final_centroids, int& total_iterations, const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size) {
-        if(orig_data_points.size() < this->k) {
-            std::cout << "There can't be more clusters than data points!";
+        if(orig_data_points.size() <= this->k || this->k <= 1) {
+            std::cout << "The number of clusters must be greater than 1 and less than the number of data points!";
             exit(1);
         }
 
@@ -230,8 +230,8 @@ public:
 
         if(n_data_iterations > 1)
         {
-            if(this->k > data_points_batch_size) {
-                this->k = data_points_batch_size;
+            if(this->k >= data_points_batch_size) {
+                this->k = data_points_batch_size - 1;
                 std::cout << "\033[1mN° of dev_clusters\033[0m bigger than the maximum batch size-> reduced to: " << this->k << std::endl;
             }
 

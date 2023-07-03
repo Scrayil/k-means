@@ -66,7 +66,13 @@ public:
      * More specifically this public method is responsible for starting the cluster generation and to print the final
      * results to the console.
      *
-     * @param data_points This is the vector that contains all the data points that are going to be clustered.
+     * @param centroids This is the vector that will contain the final centroids' positions used to save the results to disk later.
+     * @param total_iterations This the total number of iterations required to cluster the input data, that will
+     * be used while saving the results.
+     * @param orig_data_points This is the vector that contains all the data points that are going to be clustered.
+     * @param device_index Index of the first detected GPU.
+     * @param random_rng This is the random number engine to use in order to generate random values.
+     * @param data_points_batch_size Initial chosen size of a single batch of data.
      */
     void fit(std::vector<std::vector<double>>& centroids, int& total_iterations, const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
         if(orig_data_points.size() <= this->k || this->k <= 1) {
@@ -85,6 +91,17 @@ public:
     }
 
 private:
+    /**
+     * This is is used to copy each batch of data points to the relative container in order to process them.
+     *
+     * The data points corresponding to the current batch are copied to the host container first and only after to the device.
+     *
+     * @param data_points Host container for the current batch of points.
+     * @param orig_data_points This is the vector that contains all the data points that are going to be clustered.
+     * @param curr_batch_index Index of the current batch of data to process.
+     * @param curr_batch_index Chosen size of a single batch of data.
+     * @return the real size of the given batch.
+     */
     static int copy_data_points(std::vector<std::vector<double>>& data_points, const std::vector<std::vector<double>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
         int actual_data_points = 0;
         for(int i = curr_batch_index; i < curr_batch_index + data_points_batch_size; i++)
@@ -97,6 +114,14 @@ private:
         return actual_data_points;
     }
 
+
+    /**
+     * This function is responsible for initializing centroids randomly based onto the given generator.
+     *
+     *
+     * @param orig_data_points This is the vector that contains all the data points that are going to be clustered.
+     * @param random_rng This is the random number engine to use in order to generate random values.
+     */
     void initialize_centroids(const std::vector<std::vector<double>>& orig_data_points, std::mt19937 random_rng) {
         int index = 0;
         int num_data_points = static_cast<int>(orig_data_points.size());
@@ -122,7 +147,10 @@ private:
      * More specifically this is responsible for managing the clusters generation and optimization until the required
      * level of tolerance is met or all the centroids converge.
      *
-     * @param data_points This is the vector that contains all the data points that are going to be clustered.
+     * @param orig_data_points This is the vector that contains all the data points that are going to be clustered.
+     * @param device_index Index of the first detected GPU.
+     * @param random_rng This is the random number engine to use in order to generate random values.
+     * @param data_points_batch_size Initial chosen size of a single batch of data.
      * @return the number of iterations that have been required in order to fit the data.
      */
     int generate_and_optimize_clusters(const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size=-1) {
@@ -281,7 +309,7 @@ private:
     }
 
     /**
-     * This method retrieves the nearest centroid to the current data point add the point to it's cluster.
+     * This method retrieves the nearest centroid to the current data point and adds the point to it's cluster.
      *
      * In particular, the function searches for the minimum distances inside the data point's distances vector
      * and retrieves the index of the centroid/cluster in order to classify.
@@ -349,7 +377,7 @@ private:
     /**
      * This is the method that is responsible for evaluating the given centroid convergence.
      *
-     * The method actually computes the arithmetic sum of the differences (in percentages) of the current centroid
+     * The method actually computes the arithmetic sum of the percentage differences of the current centroid
      * position and it's previous position.
      *
      * @param clusters_optimized Flag used to determine if the centroid converges.
@@ -373,11 +401,11 @@ private:
     }
 
     /**
-     * This method is used to retrieve the new position in order to move the current cluster's centroid onto it.
+     * This method is used to retrieve the new centroid's position in order to move the current cluster's center onto it.
      *
      * Iterates over all the cluster's data points coordinates and sums them separately in order to compute their
-     * average and return a point (new centroid's position) in which each coordinate is the average of the related
-     * data points coordinate.
+     * average. It then returns a point (new centroid's position) in which each coordinate is the average of the
+     * corresponding data points coordinate.
      *
      * @param cluster This is a vector that contains all the data points for which the average is being computed.
      * @return the new centroid's position based onto the computed average.

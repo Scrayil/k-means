@@ -21,10 +21,10 @@ __global__ void p_generate_and_optimize_clusters(int num_dimensions, int num_clu
     if(unique_index < data_points_batch_size) {
         int point_base_index = unique_index * num_dimensions;
 
-        // CLEARING THE CLUSTERS AND DISTANCES ELEMENTS RELATED TO THE CURRENT DATA_POINT
+        // CLEARING THE CLUSTERS AND DISTANCES RELATED TO THE CURRENT DATA_POINT
 
         if (unique_index == 0)
-            // Reset the convergence value
+            // Reset the global convergence value
             *clusters_optimized = true;
 
         for(int cluster_num = 0; cluster_num < num_clusters; cluster_num++) {
@@ -56,7 +56,6 @@ __global__ void p_generate_and_optimize_clusters(int num_dimensions, int num_clu
             }
 
             // Assigning the data point to the cluster with the nearest centroid
-            // Remaining clusters non-assigned data_points' sections contain values equal to -1
             for (int i = 0; i < num_dimensions; i++)
                 clusters[min_dist_index * data_points_batch_size * num_dimensions +
                         point_base_index + i] = data_points[point_base_index + i];

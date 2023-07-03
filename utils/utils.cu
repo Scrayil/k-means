@@ -5,6 +5,11 @@
 
 // FUNCTIONS
 
+/**
+ * This function is used to verify if there is a dedicated nvidia GPU.
+ *
+ * @return The index of the first GPU
+ */
 int perform_gpu_check() {
     int deviceCount = 0;
     cudaGetDeviceCount(&deviceCount);
@@ -17,6 +22,16 @@ int perform_gpu_check() {
         return 0;
 }
 
+/**
+ * This function is used to detect the appropriate configuration for the GPU in order to achieve good performances
+ * while processing the input data.
+ * .
+ * While checking the available resources, 15% of them is left unused for other processes usage.
+ * @param device_index Index of the first detected GPU.
+ * @param num_data_points Actual number of records to process
+ * @param data_points_batch_size Temporary initial size of a single batch of data.
+ * @return An array that contains the specs to use for processing, like threads per blocks, blocks batch size and so on..
+ */
 int* get_iteration_threads_and_blocks(int device_index, int num_data_points, int data_points_batch_size) {
     // Gets the total number of THREADS available on the gpu
     cudaDeviceProp deviceProp{};

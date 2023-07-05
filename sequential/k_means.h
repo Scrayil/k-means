@@ -92,14 +92,14 @@ public:
 
 private:
     /**
-     * This is is used to copy each batch of data points to the relative container in order to process them.
+     * This function is used to copy each batch of data points to the relative container in order to process them.
      *
      * The data points corresponding to the current batch are copied to the host container first and only after to the device.
      *
      * @param data_points Host container for the current batch of points.
      * @param orig_data_points This is the vector that contains all the data points that are going to be clustered.
      * @param curr_batch_index Index of the current batch of data to process.
-     * @param curr_batch_index Chosen size of a single batch of data.
+     * @param data_points_batch_size Chosen size of a single batch of data.
      * @return the real size of the given batch.
      */
     static int copy_data_points(std::vector<std::vector<double>>& data_points, const std::vector<std::vector<double>>& orig_data_points, int curr_batch_index, int data_points_batch_size) {
@@ -116,8 +116,9 @@ private:
 
 
     /**
-     * This function is responsible for initializing centroids randomly based onto the given generator.
+     * This function is responsible for initializing the centroids randomly based onto the given generator.
      *
+     * It ensures that the centroids' initialization considers all the batches points.
      *
      * @param orig_data_points This is the vector that contains all the data points that are going to be clustered.
      * @param random_rng This is the random number engine to use in order to generate random values.

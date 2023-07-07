@@ -19,13 +19,14 @@ https://freakonometrics.hypotheses.org/19156. Accessed 05 July 2023.*
 
 ## Requirements  
 Before building the project it is necessary to perform some steps:
-1.  Install the appropriate CUDA libraries on your system. See: [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)
-2.  Change the CUDA properties inside the "CmakeLists.txt" file accordingly to your GPU characteristics.
-3.  Set the environment variable required to locate your nvcc compiler like this:
+1.  The dataset used is big, it has been stored with the git-lfs framework, make sure to install [Git-LFS](https://git-lfs.com/) if necessary.
+2.  Install the appropriate CUDA libraries on your system. See: [CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit)
+3.  Change the CUDA properties inside the "CmakeLists.txt" file accordingly to your GPU characteristics.
+4.  Set the environment variable required to locate your nvcc compiler like this:
     ~~~bash
     CUDACXX=/usr/local/cuda/bin/nvcc
     ~~~
-4.  While testing and evaluating the performances on your machine, change the number of threads (co-workers) to use, according to your GPU resources. You can find that variable inside the "k_means.cuh" file here: [parallel version](https://github.com/Scrayil/k-means/tree/af8a170da15aa8a0e4d70493d9dd5bfd40b3e72e/parallel)
+5.  While testing and evaluating the performances on your machine, change the number of threads (co-workers) to use, according to your GPU resources. You can find that variable inside the "k_means.cuh" file here: [parallel version](https://github.com/Scrayil/k-means/tree/af8a170da15aa8a0e4d70493d9dd5bfd40b3e72e/parallel)
 
 ## Reporting  
 The aim of the project was to compare the two implementations, highlight the eventual limitations and evaluate the performance benefits resulting from GPU multithreading.

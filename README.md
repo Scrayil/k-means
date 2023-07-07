@@ -47,6 +47,10 @@ Line 3: parallel,61.298,1000,2,20,0,26,2793709286,"/home/scrayil/Desktop/dev/Uni
 By specifying a particular seed, the **centroids' filenames generation** does guarantee uniqueness if two different main program executions don't happen during the same second.  
 If the two different executions occure consecutively, in the same second (timestamp), the uniqueness is guaranteed only if different seeds have been used between them. (default behavior)  
 
+This software includes thirty-party code for parsing json and csv files.  
+- The csv parser has been taken from [AriaFallah](https://github.com/AriaFallah/csv-parser.git)
+- The json parser from [nlohmann](https://github.com/nlohmann/json.git)
+
 ## License
 Copyright 2023 Mattia Bennati  
 Licensed under the GNU GPL V2: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html

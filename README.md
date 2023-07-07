@@ -30,7 +30,7 @@ Before building the project it is necessary to perform some steps:
 ## Reporting  
 The aim of the project was to compare the two implementations, highlight the eventual limitations and evaluate the performance benefits resulting from GPU multithreading.
 For this purpose, a specific benchmarking and ready to use dataset has been randomly generated.  
-Note that no data preprocessing strategy has been applied here.  
+Note that no data pre-processing strategy has been applied here.  
 Both the measured [results](https://github.com/Scrayil/k-means/tree/af8a170da15aa8a0e4d70493d9dd5bfd40b3e72e/results) and the [reporting](https://github.com/Scrayil/k-means/tree/af8a170da15aa8a0e4d70493d9dd5bfd40b3e72e/report) have been added to this repository.
 
 The executions report has been structured as follows:  

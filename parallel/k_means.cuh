@@ -230,8 +230,8 @@ public:
         this->max_tolerance = max_tolerance;
         this->max_iterations = max_iterations;
 
-        if(k < 1) {
-            std::cout << "The number of clusters(k) must be greater or equal to 1!";
+        if(k < 2) {
+            std::cout << "The number of clusters(k) must be greater or equal to 2!";
             exit(1);
         }
         if(max_tolerance < 0) {
@@ -261,7 +261,7 @@ public:
      */
     void p_fit(std::vector<std::vector<double>>& final_centroids, int& total_iterations, const std::vector<std::vector<double>>& orig_data_points, int device_index, std::mt19937 random_rng, int data_points_batch_size) {
         if(orig_data_points.size() <= this->k || this->k <= 1) {
-            std::cout << "The number of clusters must be greater than 1 and less than the number of data points!";
+            std::cout << "The number of clusters must be greater than 1 and smaller than the number of data points!";
             exit(1);
         }
 
